@@ -203,11 +203,11 @@ data class GlassConfig(
             BOTTOM_MARGIN_OFFSET_MAX_DP,
         ),
         lightAlpha = 0.40f,
-        // Dark mirrors light so the 玻璃底色透明度 slider spans the same alpha range
-        // (0.10 .. 0.80) in both themes.
+        // Dark mirrors light. 玻璃底色透明度 is 0–100% of this 0.40 base, so the
+        // scale runs 0 .. 2.5 (0% clears the fill, 40% is the shipped look, 100% is solid).
         darkAlpha = 0.40f,
         darkBarHighlightStrength = darkBarHighlightStrength.coerceIn(0.5f, 1.7f),
-        glassAlphaScale = glassAlphaScale.coerceIn(0.25f, 2f),
+        glassAlphaScale = glassAlphaScale.coerceIn(0f, 2.5f),
         glassSaturation = glassSaturation.coerceIn(0.5f, 2.5f),
         // 0 = no refraction at all (the lens shaders short-circuit), so pulling a slider to
         // the bottom really turns it off instead of leaving a 14 px warp.
@@ -251,14 +251,13 @@ data class GlassConfig(
             .take(ENTRY_LABEL_COUNT)
             .joinToString("\n") { it.trim().take(ENTRY_LABEL_MAX_LENGTH) },
         actionBlurRadius = actionBlurRadius.coerceIn(0f, 32f),
-        actionTintAlpha = actionTintAlpha.coerceIn(0f, 0.80f),
+        actionTintAlpha = actionTintAlpha.coerceIn(0f, 1f),
         actionTintMode = actionTintMode.coerceIn(ACTION_TINT_WHITE, ACTION_TINT_AUTO),
         actionOutlineWidthDp = actionOutlineWidthDp.coerceIn(0.5f, 3f),
         actionHighlight = actionHighlight.coerceIn(0f, 1f),
         actionScale = actionScale.coerceIn(0.8f, 1.3f),
         commentBlurRadius = commentBlurRadius.coerceIn(0f, 40f),
-        // Floor stays high on purpose: comment text sits on this fill.
-        commentTintAlpha = commentTintAlpha.coerceIn(0.45f, 0.92f),
+        commentTintAlpha = commentTintAlpha.coerceIn(0f, 1f),
         commentLightTint = commentLightTint or Color.BLACK,
         commentDarkTint = commentDarkTint or Color.BLACK,
         commentCornerRadiusDp = commentCornerRadiusDp.coerceIn(0f, 36f),

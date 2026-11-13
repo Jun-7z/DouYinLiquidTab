@@ -562,8 +562,8 @@ private class GlyphGlassDrawable(private val icon: View) : Drawable() {
             config.actionTintMode == GlassConfig.ACTION_TINT_AUTO -> sample.rgb
             else -> 0xFFFFFF
         }
-        val amount = if (liked) config.actionTintAlpha.coerceIn(0.62f, 0.80f) else config.actionTintAlpha
-        val alpha = (amount.coerceIn(0f, 0.80f) * 255f).roundToInt().coerceIn(0, 255)
+        val amount = config.actionTintAlpha
+        val alpha = (amount.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
         return (rgb and 0x00FFFFFF) or (alpha shl 24)
     }
 

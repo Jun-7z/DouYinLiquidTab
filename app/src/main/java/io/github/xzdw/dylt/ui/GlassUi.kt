@@ -1878,9 +1878,9 @@ private fun GlassSettingsSubpage(
                         palette,
                     ) { actions.setGlassConfig(config.copy(actionBlurRadius = it)) }
                     GlassSlider(
-                        "填充不透明度\n0%–80%",
+                        "填充不透明度\n0%–100%",
                         config.actionTintAlpha,
-                        0f..0.80f,
+                        0f..1f,
                         { "${(it * 100).toInt()}%" },
                         backdrop,
                         palette,
@@ -1957,9 +1957,9 @@ private fun GlassSettingsSubpage(
                         palette,
                     ) { actions.setGlassConfig(config.copy(commentBlurRadius = it)) }
                     GlassSlider(
-                        "填充不透明度\n45%–92%",
+                        "填充不透明度\n0%–100%",
                         config.commentTintAlpha,
-                        0.45f..0.92f,
+                        0f..1f,
                         { "${(it * 100).toInt()}%" },
                         backdrop,
                         palette,
@@ -2140,9 +2140,9 @@ private fun GlassSettingsSubpage(
                         palette,
                     ) { actions.setGlassConfig(config.copy(refractionStrengthDp = it)) }
                     GlassSlider(
-                        "玻璃底色透明度\n默认 40%",
+                        "玻璃底色透明度\n0%–100% · 默认 40%",
                         config.glassAlphaScale * 40f,
-                        10f..80f,
+                        0f..100f,
                         { "${it.toInt()}%" },
                         backdrop,
                         palette,

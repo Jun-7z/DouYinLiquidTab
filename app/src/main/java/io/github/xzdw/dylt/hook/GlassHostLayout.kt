@@ -650,8 +650,8 @@ class GlassHostLayout(
         // reaches an adapter-owned glass alpha (Douyin's dark 0.20) instead of being
         // silently overwritten by it.
         val alphaScaled = adapted.copy(
-            lightAlpha = (adapted.lightAlpha * adapted.glassAlphaScale).coerceIn(0f, 0.95f),
-            darkAlpha = (adapted.darkAlpha * adapted.glassAlphaScale).coerceIn(0f, 0.95f),
+            lightAlpha = (adapted.lightAlpha * adapted.glassAlphaScale).coerceIn(0f, 1f),
+            darkAlpha = (adapted.darkAlpha * adapted.glassAlphaScale).coerceIn(0f, 1f),
         )
         // Rendering switches are enforced after app-specific normalization so
         // no adapter can accidentally re-enable a retired or disabled path.

@@ -125,9 +125,9 @@ internal object DouyinAdapter : TargetAdapter {
      * medium labels. The 4dp inner padding is already the host default, so the
      * selection capsule comes out 42dp tall, again matching the reference.
      *
-     * Dark mode mirrors the light container alpha so the 玻璃底色透明度 slider spans the
-     * same alpha range in both themes. The user's multiplier is applied after this
-     * (see `GlassHostLayout.packageConfig`), so it scales 0.40 as well.
+     * Dark mode mirrors the light container alpha so the 玻璃底色透明度 slider (0–100%)
+     * spans the same alpha range in both themes. The user's multiplier is applied after
+     * this (see `GlassHostLayout.packageConfig`), so it scales 0.40 as well.
      *
      * Bar height and label size are *not* touched here: 50dp / 13sp are the shared
      * defaults now. They used to be forced from this adapter, which silently discarded
