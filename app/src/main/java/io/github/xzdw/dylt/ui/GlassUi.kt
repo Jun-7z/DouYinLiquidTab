@@ -58,7 +58,9 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Flare
 import androidx.compose.material.icons.filled.LocalFlorist
 import androidx.compose.material.icons.filled.Menu
@@ -1639,6 +1641,35 @@ private fun GlassSettings(
         }
         item {
             GlassRow(
+                title = ManagerSettingsSubpage.ACTION_RAIL.title,
+                summary = if (config.actionGlassEnabled) {
+                    (if (config.actionGlassStyle == GlassConfig.ACTION_GLASS_BUTTONS) "逐个圆形" else "整列胶囊") +
+                        " · 模糊 ${config.actionBlurRadius.toInt()}"
+                } else {
+                    "关闭"
+                },
+                backdrop = backdrop,
+                palette = palette,
+                leading = { GlassLeadingIcon(Icons.Filled.Favorite, palette) },
+                onClick = { onOpenSubpage(ManagerSettingsSubpage.ACTION_RAIL) },
+            )
+        }
+        item {
+            GlassRow(
+                title = ManagerSettingsSubpage.COMMENT_SHEET.title,
+                summary = if (config.commentGlassEnabled) {
+                    "磨砂 · 模糊 ${config.commentBlurRadius.toInt()} · 不透明度 ${(config.commentTintAlpha * 100).toInt()}%"
+                } else {
+                    "关闭"
+                },
+                backdrop = backdrop,
+                palette = palette,
+                leading = { GlassLeadingIcon(Icons.AutoMirrored.Filled.Chat, palette) },
+                onClick = { onOpenSubpage(ManagerSettingsSubpage.COMMENT_SHEET) },
+            )
+        }
+        item {
+            GlassRow(
                 title = ManagerSettingsSubpage.BOTTOM_BAR.title,
                 summary = listOfNotNull(
                     bottomBarStyleLabel(config.bottomBarStyle),
@@ -1822,6 +1853,160 @@ private fun GlassSettingsSubpage(
                         leading = { GlassLeadingIcon(Icons.Filled.Flare, palette) },
                         onClick = { onOpenSubpage(ManagerSettingsSubpage.GLASS_OUTLINE) },
                     )
+                }
+            }
+
+            ManagerSettingsSubpage.ACTION_RAIL -> item {
+                GlassPanel(backdrop, palette) {
+                    GlassSwitchRow(
+                        "右侧操作列液态玻璃",
+                        if (config.actionGlassEnabled) "头像、点赞、评论、收藏、分享、拍同款背后加玻璃"
+                        else "操作列保持抖音原样",
+                        config.actionGlassEnabled,
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(actionGlassEnabled = it)) }
+                    ActionGlassStyleChoice(
+                        selected = config.actionGlassStyle,
+                        backdrop = backdrop,
+                        palette = palette,
+                    ) { actions.setGlassConfig(config.copy(actionGlassStyle = it)) }
+                    GlassSlider(
+                        "模糊半径\n0–32",
+                        config.actionBlurRadius,
+                        0f..32f,
+                        { "${it.toInt()}" },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(actionBlurRadius = it)) }
+                    GlassSlider(
+                        "圆角\n0–48 dp",
+                        config.actionCornerRadiusDp,
+                        0f..48f,
+                        { "${it.toInt()} dp" },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(actionCornerRadiusDp = it)) }
+                    GlassSlider(
+                        "填充不透明度\n15%–85%",
+                        config.actionTintAlpha,
+                        0.15f..0.85f,
+                        { "${(it * 100).toInt()}%" },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(actionTintAlpha = it)) }
+                    GlassSwitchRow(
+                        "描边",
+                        if (config.actionOutlineEnabled) "玻璃边缘有一圈细线" else "不画描边",
+                        config.actionOutlineEnabled,
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(actionOutlineEnabled = it)) }
+                    GlassSlider(
+                        "高光强度\n0–1",
+                        config.actionHighlight,
+                        0f..1f,
+                        { "%.2f".format(it) },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(actionHighlight = it)) }
+                    GlassSlider(
+                        "内边距\n0–24 dp",
+                        config.actionPaddingDp,
+                        0f..24f,
+                        { "${it.toInt()} dp" },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(actionPaddingDp = it)) }
+                    GlassSlider(
+                        "大小\n0.80–1.30",
+                        config.actionScale,
+                        0.8f..1.3f,
+                        { "%.2f×".format(it) },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(actionScale = it)) }
+                    GlassSlider(
+                        "垂直偏移\n−80–80 dp",
+                        config.actionOffsetYDp,
+                        -80f..80f,
+                        { formatSignedDp(it) },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(actionOffsetYDp = it)) }
+                }
+            }
+
+            ManagerSettingsSubpage.COMMENT_SHEET -> item {
+                GlassPanel(backdrop, palette) {
+                    GlassSwitchRow(
+                        "评论区磨砂玻璃",
+                        if (config.commentGlassEnabled) "评论面板透出背后的视频，文字仍可读"
+                        else "评论面板保持抖音原样",
+                        config.commentGlassEnabled,
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(commentGlassEnabled = it)) }
+                    GlassSwitchRow(
+                        "输入栏也用玻璃",
+                        if (config.commentInputGlass) "底部输入条跟面板同一层玻璃" else "输入条保持原样",
+                        config.commentInputGlass,
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(commentInputGlass = it)) }
+                    GlassSlider(
+                        "模糊半径\n0–40",
+                        config.commentBlurRadius,
+                        0f..40f,
+                        { "${it.toInt()}" },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(commentBlurRadius = it)) }
+                    GlassSlider(
+                        "填充不透明度\n45%–92%",
+                        config.commentTintAlpha,
+                        0.45f..0.92f,
+                        { "${(it * 100).toInt()}%" },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(commentTintAlpha = it)) }
+                    CommentTintChoice(
+                        title = "浅色底色",
+                        colors = GlassConfig.COMMENT_LIGHT_CHOICES,
+                        selected = config.commentLightTint,
+                        backdrop = backdrop,
+                        palette = palette,
+                    ) { actions.setGlassConfig(config.copy(commentLightTint = it)) }
+                    CommentTintChoice(
+                        title = "深色底色",
+                        colors = GlassConfig.COMMENT_DARK_CHOICES,
+                        selected = config.commentDarkTint,
+                        backdrop = backdrop,
+                        palette = palette,
+                    ) { actions.setGlassConfig(config.copy(commentDarkTint = it)) }
+                    GlassSlider(
+                        "圆角\n0–36 dp",
+                        config.commentCornerRadiusDp,
+                        0f..36f,
+                        { "${it.toInt()} dp" },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(commentCornerRadiusDp = it)) }
+                    GlassSwitchRow(
+                        "描边",
+                        if (config.commentOutlineEnabled) "面板边缘有一圈细线" else "不画描边",
+                        config.commentOutlineEnabled,
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(commentOutlineEnabled = it)) }
+                    GlassSlider(
+                        "高光强度\n0–1",
+                        config.commentHighlight,
+                        0f..1f,
+                        { "%.2f".format(it) },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(commentHighlight = it)) }
                 }
             }
 
@@ -2149,6 +2334,76 @@ private fun GlassSettingsSubpage(
  * choice does not fit the shared toggle (which is on/off), and a slider would read as a magnitude
  * rather than as three named layouts.
  */
+@Composable
+private fun ActionGlassStyleChoice(
+    selected: Int,
+    backdrop: Backdrop,
+    palette: GlassPalette,
+    onSelected: (Int) -> Unit,
+) {
+    val options = listOf(
+        GlassConfig.ACTION_GLASS_CAPSULE to "整列胶囊",
+        GlassConfig.ACTION_GLASS_BUTTONS to "逐个圆形",
+    )
+    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Text("样式", color = palette.content, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { (style, label) ->
+                val isSelected = style == selected
+                LiquidButton(
+                    onClick = { if (!isSelected) onSelected(style) },
+                    backdrop = backdrop,
+                    modifier = Modifier.weight(1f),
+                    surfaceColor = if (isSelected) palette.accent.copy(alpha = 0.30f) else Color.Unspecified,
+                ) {
+                    Text(
+                        label,
+                        color = if (isSelected) palette.content else palette.secondary,
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommentTintChoice(
+    title: String,
+    colors: IntArray,
+    selected: Int,
+    backdrop: Backdrop,
+    palette: GlassPalette,
+    onSelected: (Int) -> Unit,
+) {
+    val labels = listOf("奶油", "纯白", "浅灰").take(colors.size).let {
+        if (colors === GlassConfig.COMMENT_DARK_CHOICES) listOf("暖黑", "纯黑", "深灰") else it
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Text(title, color = palette.content, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            colors.forEachIndexed { index, color ->
+                val isSelected = (color or android.graphics.Color.BLACK) == (selected or android.graphics.Color.BLACK)
+                LiquidButton(
+                    onClick = { if (!isSelected) onSelected(color) },
+                    backdrop = backdrop,
+                    modifier = Modifier.weight(1f),
+                    surfaceColor = if (isSelected) palette.accent.copy(alpha = 0.30f) else Color.Unspecified,
+                ) {
+                    Text(
+                        labels.getOrElse(index) { "" },
+                        color = if (isSelected) palette.content else palette.secondary,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun GlassStyleChoice(
     selected: Int,

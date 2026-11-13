@@ -119,6 +119,30 @@ object ConfigContract {
      * Empty keeps the built-in glyph.
      */
     const val KEY_PUBLISH_ICON = "publish_icon"
+
+    /** 右侧操作列液态玻璃，以及它自己的材质参数。默认关闭。 */
+    const val KEY_ACTION_GLASS = "action_glass"
+    const val KEY_ACTION_GLASS_STYLE = "action_glass_style"
+    const val KEY_ACTION_BLUR = "action_blur"
+    const val KEY_ACTION_CORNER = "action_corner"
+    const val KEY_ACTION_TINT = "action_tint"
+    const val KEY_ACTION_OUTLINE = "action_outline"
+    const val KEY_ACTION_HIGHLIGHT = "action_highlight"
+    const val KEY_ACTION_PADDING = "action_padding"
+    const val KEY_ACTION_SCALE = "action_scale"
+    const val KEY_ACTION_OFFSET_Y = "action_offset_y"
+
+    /** 评论区磨砂玻璃。默认关闭，输入栏跟随面板。 */
+    const val KEY_COMMENT_GLASS = "comment_glass"
+    const val KEY_COMMENT_BLUR = "comment_blur"
+    const val KEY_COMMENT_TINT = "comment_tint"
+    const val KEY_COMMENT_LIGHT = "comment_light"
+    const val KEY_COMMENT_DARK = "comment_dark"
+    const val KEY_COMMENT_CORNER = "comment_corner"
+    const val KEY_COMMENT_OUTLINE = "comment_outline"
+    const val KEY_COMMENT_HIGHLIGHT = "comment_highlight"
+    const val KEY_COMMENT_INPUT = "comment_input"
+
     const val KEY_SYSTEM_DARK = "system_dark"
     const val KEY_MI_MARKET_TAB_ENABLED = "mi_market_tab_enabled"
 }

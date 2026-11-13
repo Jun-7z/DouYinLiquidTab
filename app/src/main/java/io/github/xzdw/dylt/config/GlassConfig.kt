@@ -149,6 +149,38 @@ data class GlassConfig(
      * built-in "+" glyph. Downscaled in the settings UI so the stored string stays small.
      */
     val publishIcon: String = "",
+    /**
+     * 右侧操作列: frosted glass behind the feed's avatar / like / comment / collect /
+     * share / music column. Off leaves Douyin's own buttons untouched.
+     *
+     * [actionGlassStyle] is [ACTION_GLASS_CAPSULE] (one panel) or [ACTION_GLASS_BUTTONS]
+     * (a circle behind each button). The other knobs are the panel's own material; they
+     * do not move the shared bottom-bar sliders.
+     */
+    val actionGlassEnabled: Boolean = false,
+    val actionGlassStyle: Int = ACTION_GLASS_CAPSULE,
+    val actionBlurRadius: Float = 12f,
+    val actionCornerRadiusDp: Float = 28f,
+    val actionTintAlpha: Float = 0.42f,
+    val actionOutlineEnabled: Boolean = true,
+    val actionHighlight: Float = 0.45f,
+    val actionPaddingDp: Float = 8f,
+    val actionScale: Float = 1f,
+    val actionOffsetYDp: Float = 0f,
+    /**
+     * 评论区: the comment sheet's own background becomes frosted glass over the video.
+     * The fill stays opaque enough that comment text remains readable. Off restores
+     * Douyin's sheet.
+     */
+    val commentGlassEnabled: Boolean = false,
+    val commentBlurRadius: Float = 20f,
+    val commentTintAlpha: Float = 0.72f,
+    val commentLightTint: Int = DEFAULT_COMMENT_LIGHT,
+    val commentDarkTint: Int = DEFAULT_COMMENT_DARK,
+    val commentCornerRadiusDp: Float = 18f,
+    val commentOutlineEnabled: Boolean = true,
+    val commentHighlight: Float = 0.35f,
+    val commentInputGlass: Boolean = true,
 ) {
     /** 仅文字: the bar draws labels alone, vertically centred where the glyph used to sit. */
     val textOnly: Boolean get() = bottomBarStyle == BOTTOM_BAR_STYLE_TEXT_ONLY
@@ -217,6 +249,21 @@ data class GlassConfig(
             .split('\n')
             .take(ENTRY_LABEL_COUNT)
             .joinToString("\n") { it.trim().take(ENTRY_LABEL_MAX_LENGTH) },
+        actionGlassStyle = actionGlassStyle.coerceIn(ACTION_GLASS_CAPSULE, ACTION_GLASS_BUTTONS),
+        actionBlurRadius = actionBlurRadius.coerceIn(0f, 32f),
+        actionCornerRadiusDp = actionCornerRadiusDp.coerceIn(0f, 48f),
+        actionTintAlpha = actionTintAlpha.coerceIn(0.15f, 0.85f),
+        actionHighlight = actionHighlight.coerceIn(0f, 1f),
+        actionPaddingDp = actionPaddingDp.coerceIn(0f, 24f),
+        actionScale = actionScale.coerceIn(0.8f, 1.3f),
+        actionOffsetYDp = actionOffsetYDp.coerceIn(-80f, 80f),
+        commentBlurRadius = commentBlurRadius.coerceIn(0f, 40f),
+        // Floor stays high on purpose: comment text sits on this fill.
+        commentTintAlpha = commentTintAlpha.coerceIn(0.45f, 0.92f),
+        commentLightTint = commentLightTint or Color.BLACK,
+        commentDarkTint = commentDarkTint or Color.BLACK,
+        commentCornerRadiusDp = commentCornerRadiusDp.coerceIn(0f, 36f),
+        commentHighlight = commentHighlight.coerceIn(0f, 1f),
     )
 
     fun toBundle(packageName: String): Bundle = Bundle().apply {
@@ -268,6 +315,25 @@ data class GlassConfig(
         putInt(ConfigContract.KEY_TOP_BAR_TAB_COUNT, value.topBarTabCount)
         putString(ConfigContract.KEY_TOP_BAR_TAB_ORDER, value.topBarTabOrder)
         putString(ConfigContract.KEY_PUBLISH_ICON, value.publishIcon)
+        putBoolean(ConfigContract.KEY_ACTION_GLASS, value.actionGlassEnabled)
+        putInt(ConfigContract.KEY_ACTION_GLASS_STYLE, value.actionGlassStyle)
+        putFloat(ConfigContract.KEY_ACTION_BLUR, value.actionBlurRadius)
+        putFloat(ConfigContract.KEY_ACTION_CORNER, value.actionCornerRadiusDp)
+        putFloat(ConfigContract.KEY_ACTION_TINT, value.actionTintAlpha)
+        putBoolean(ConfigContract.KEY_ACTION_OUTLINE, value.actionOutlineEnabled)
+        putFloat(ConfigContract.KEY_ACTION_HIGHLIGHT, value.actionHighlight)
+        putFloat(ConfigContract.KEY_ACTION_PADDING, value.actionPaddingDp)
+        putFloat(ConfigContract.KEY_ACTION_SCALE, value.actionScale)
+        putFloat(ConfigContract.KEY_ACTION_OFFSET_Y, value.actionOffsetYDp)
+        putBoolean(ConfigContract.KEY_COMMENT_GLASS, value.commentGlassEnabled)
+        putFloat(ConfigContract.KEY_COMMENT_BLUR, value.commentBlurRadius)
+        putFloat(ConfigContract.KEY_COMMENT_TINT, value.commentTintAlpha)
+        putInt(ConfigContract.KEY_COMMENT_LIGHT, value.commentLightTint)
+        putInt(ConfigContract.KEY_COMMENT_DARK, value.commentDarkTint)
+        putFloat(ConfigContract.KEY_COMMENT_CORNER, value.commentCornerRadiusDp)
+        putBoolean(ConfigContract.KEY_COMMENT_OUTLINE, value.commentOutlineEnabled)
+        putFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
+        putBoolean(ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
     }
 
     companion object {
@@ -376,6 +442,21 @@ data class GlassConfig(
         const val BOTTOM_BAR_STYLE_ICON_ONLY = 1
         const val BOTTOM_BAR_STYLE_TEXT_ONLY = 2
 
+        /** 右侧操作列: one capsule behind the whole column. */
+        const val ACTION_GLASS_CAPSULE = 0
+        /** 右侧操作列: a circle behind each button. */
+        const val ACTION_GLASS_BUTTONS = 1
+
+        /** 评论区浅色底，不透明；透明度由 [commentTintAlpha] 另乘。 */
+        const val DEFAULT_COMMENT_LIGHT: Int = 0xFFF4F0E8.toInt()
+        /** 评论区深色底。 */
+        const val DEFAULT_COMMENT_DARK: Int = 0xFF161311.toInt()
+
+        /** 评论区浅色三档，设置页直接点选。 */
+        val COMMENT_LIGHT_CHOICES = intArrayOf(DEFAULT_COMMENT_LIGHT, 0xFFFFFFFF.toInt(), 0xFFE4E0D8.toInt())
+        /** 评论区深色三档。 */
+        val COMMENT_DARK_CHOICES = intArrayOf(DEFAULT_COMMENT_DARK, 0xFF000000.toInt(), 0xFF2C2824.toInt())
+
         fun fromBundle(bundle: Bundle?): GlassConfig {
             if (bundle == null) return GlassConfig()
             return GlassConfig(
@@ -426,6 +507,25 @@ data class GlassConfig(
                 topBarTabOrder = bundle.getString(ConfigContract.KEY_TOP_BAR_TAB_ORDER) ?: "",
                 systemDark = bundle.getBoolean(ConfigContract.KEY_SYSTEM_DARK, false),
                 publishIcon = bundle.getString(ConfigContract.KEY_PUBLISH_ICON) ?: "",
+                actionGlassEnabled = bundle.getBoolean(ConfigContract.KEY_ACTION_GLASS, false),
+                actionGlassStyle = bundle.getInt(ConfigContract.KEY_ACTION_GLASS_STYLE, ACTION_GLASS_CAPSULE),
+                actionBlurRadius = bundle.getFloat(ConfigContract.KEY_ACTION_BLUR, 12f),
+                actionCornerRadiusDp = bundle.getFloat(ConfigContract.KEY_ACTION_CORNER, 28f),
+                actionTintAlpha = bundle.getFloat(ConfigContract.KEY_ACTION_TINT, 0.42f),
+                actionOutlineEnabled = bundle.getBoolean(ConfigContract.KEY_ACTION_OUTLINE, true),
+                actionHighlight = bundle.getFloat(ConfigContract.KEY_ACTION_HIGHLIGHT, 0.45f),
+                actionPaddingDp = bundle.getFloat(ConfigContract.KEY_ACTION_PADDING, 8f),
+                actionScale = bundle.getFloat(ConfigContract.KEY_ACTION_SCALE, 1f),
+                actionOffsetYDp = bundle.getFloat(ConfigContract.KEY_ACTION_OFFSET_Y, 0f),
+                commentGlassEnabled = bundle.getBoolean(ConfigContract.KEY_COMMENT_GLASS, false),
+                commentBlurRadius = bundle.getFloat(ConfigContract.KEY_COMMENT_BLUR, 20f),
+                commentTintAlpha = bundle.getFloat(ConfigContract.KEY_COMMENT_TINT, 0.72f),
+                commentLightTint = bundle.getInt(ConfigContract.KEY_COMMENT_LIGHT, DEFAULT_COMMENT_LIGHT),
+                commentDarkTint = bundle.getInt(ConfigContract.KEY_COMMENT_DARK, DEFAULT_COMMENT_DARK),
+                commentCornerRadiusDp = bundle.getFloat(ConfigContract.KEY_COMMENT_CORNER, 18f),
+                commentOutlineEnabled = bundle.getBoolean(ConfigContract.KEY_COMMENT_OUTLINE, true),
+                commentHighlight = bundle.getFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, 0.35f),
+                commentInputGlass = bundle.getBoolean(ConfigContract.KEY_COMMENT_INPUT, true),
             ).normalized()
         }
     }

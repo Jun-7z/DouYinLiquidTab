@@ -557,6 +557,64 @@ object HookConfigReader {
         } else {
             defaults.publishIcon
         },
+        // 右侧操作列 / 评论区 are settings-page sections. An app prefix must not shadow them.
+        actionGlassEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_GLASS, defaults.actionGlassEnabled)
+        } else defaults.actionGlassEnabled,
+        actionGlassStyle = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_ACTION_GLASS_STYLE, defaults.actionGlassStyle)
+        } else defaults.actionGlassStyle,
+        actionBlurRadius = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_BLUR, defaults.actionBlurRadius)
+        } else defaults.actionBlurRadius,
+        actionCornerRadiusDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_CORNER, defaults.actionCornerRadiusDp)
+        } else defaults.actionCornerRadiusDp,
+        actionTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_TINT, defaults.actionTintAlpha)
+        } else defaults.actionTintAlpha,
+        actionOutlineEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_OUTLINE, defaults.actionOutlineEnabled)
+        } else defaults.actionOutlineEnabled,
+        actionHighlight = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_HIGHLIGHT, defaults.actionHighlight)
+        } else defaults.actionHighlight,
+        actionPaddingDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_PADDING, defaults.actionPaddingDp)
+        } else defaults.actionPaddingDp,
+        actionScale = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_SCALE, defaults.actionScale)
+        } else defaults.actionScale,
+        actionOffsetYDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_OFFSET_Y, defaults.actionOffsetYDp)
+        } else defaults.actionOffsetYDp,
+        commentGlassEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_GLASS, defaults.commentGlassEnabled)
+        } else defaults.commentGlassEnabled,
+        commentBlurRadius = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_BLUR, defaults.commentBlurRadius)
+        } else defaults.commentBlurRadius,
+        commentTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_TINT, defaults.commentTintAlpha)
+        } else defaults.commentTintAlpha,
+        commentLightTint = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_COMMENT_LIGHT, defaults.commentLightTint)
+        } else defaults.commentLightTint,
+        commentDarkTint = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_COMMENT_DARK, defaults.commentDarkTint)
+        } else defaults.commentDarkTint,
+        commentCornerRadiusDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_CORNER, defaults.commentCornerRadiusDp)
+        } else defaults.commentCornerRadiusDp,
+        commentOutlineEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_OUTLINE, defaults.commentOutlineEnabled)
+        } else defaults.commentOutlineEnabled,
+        commentHighlight = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_HIGHLIGHT, defaults.commentHighlight)
+        } else defaults.commentHighlight,
+        commentInputGlass = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_INPUT, defaults.commentInputGlass)
+        } else defaults.commentInputGlass,
     ).normalized()
 
     private const val QQ_PACKAGE = "com.tencent.mobileqq"

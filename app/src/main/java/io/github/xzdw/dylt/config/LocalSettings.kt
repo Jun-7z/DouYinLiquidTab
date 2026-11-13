@@ -484,6 +484,63 @@ object LocalSettings {
         } else {
             defaults.antiBurnIn
         },
+        actionGlassEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_GLASS, defaults.actionGlassEnabled)
+        } else defaults.actionGlassEnabled,
+        actionGlassStyle = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_ACTION_GLASS_STYLE, defaults.actionGlassStyle)
+        } else defaults.actionGlassStyle,
+        actionBlurRadius = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_BLUR, defaults.actionBlurRadius)
+        } else defaults.actionBlurRadius,
+        actionCornerRadiusDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_CORNER, defaults.actionCornerRadiusDp)
+        } else defaults.actionCornerRadiusDp,
+        actionTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_TINT, defaults.actionTintAlpha)
+        } else defaults.actionTintAlpha,
+        actionOutlineEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_OUTLINE, defaults.actionOutlineEnabled)
+        } else defaults.actionOutlineEnabled,
+        actionHighlight = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_HIGHLIGHT, defaults.actionHighlight)
+        } else defaults.actionHighlight,
+        actionPaddingDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_PADDING, defaults.actionPaddingDp)
+        } else defaults.actionPaddingDp,
+        actionScale = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_SCALE, defaults.actionScale)
+        } else defaults.actionScale,
+        actionOffsetYDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_OFFSET_Y, defaults.actionOffsetYDp)
+        } else defaults.actionOffsetYDp,
+        commentGlassEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_GLASS, defaults.commentGlassEnabled)
+        } else defaults.commentGlassEnabled,
+        commentBlurRadius = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_BLUR, defaults.commentBlurRadius)
+        } else defaults.commentBlurRadius,
+        commentTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_TINT, defaults.commentTintAlpha)
+        } else defaults.commentTintAlpha,
+        commentLightTint = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_COMMENT_LIGHT, defaults.commentLightTint)
+        } else defaults.commentLightTint,
+        commentDarkTint = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_COMMENT_DARK, defaults.commentDarkTint)
+        } else defaults.commentDarkTint,
+        commentCornerRadiusDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_CORNER, defaults.commentCornerRadiusDp)
+        } else defaults.commentCornerRadiusDp,
+        commentOutlineEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_OUTLINE, defaults.commentOutlineEnabled)
+        } else defaults.commentOutlineEnabled,
+        commentHighlight = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_HIGHLIGHT, defaults.commentHighlight)
+        } else defaults.commentHighlight,
+        commentInputGlass = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_INPUT, defaults.commentInputGlass)
+        } else defaults.commentInputGlass,
     ).normalized()
 
     private fun SharedPreferences.Editor.writeConfig(prefix: String, value: GlassConfig) {
@@ -531,6 +588,25 @@ object LocalSettings {
             putString(prefix + ConfigContract.KEY_TOP_BAR_TAB_ORDER, value.topBarTabOrder)
             // 底栏显示样式，和它派生出的仅图标标记（iconOnly 由 normalized() 重新推导）。
             putInt(prefix + ConfigContract.KEY_BOTTOM_BAR_STYLE, value.bottomBarStyle)
+            putBoolean(prefix + ConfigContract.KEY_ACTION_GLASS, value.actionGlassEnabled)
+            putInt(prefix + ConfigContract.KEY_ACTION_GLASS_STYLE, value.actionGlassStyle)
+            putFloat(prefix + ConfigContract.KEY_ACTION_BLUR, value.actionBlurRadius)
+            putFloat(prefix + ConfigContract.KEY_ACTION_CORNER, value.actionCornerRadiusDp)
+            putFloat(prefix + ConfigContract.KEY_ACTION_TINT, value.actionTintAlpha)
+            putBoolean(prefix + ConfigContract.KEY_ACTION_OUTLINE, value.actionOutlineEnabled)
+            putFloat(prefix + ConfigContract.KEY_ACTION_HIGHLIGHT, value.actionHighlight)
+            putFloat(prefix + ConfigContract.KEY_ACTION_PADDING, value.actionPaddingDp)
+            putFloat(prefix + ConfigContract.KEY_ACTION_SCALE, value.actionScale)
+            putFloat(prefix + ConfigContract.KEY_ACTION_OFFSET_Y, value.actionOffsetYDp)
+            putBoolean(prefix + ConfigContract.KEY_COMMENT_GLASS, value.commentGlassEnabled)
+            putFloat(prefix + ConfigContract.KEY_COMMENT_BLUR, value.commentBlurRadius)
+            putFloat(prefix + ConfigContract.KEY_COMMENT_TINT, value.commentTintAlpha)
+            putInt(prefix + ConfigContract.KEY_COMMENT_LIGHT, value.commentLightTint)
+            putInt(prefix + ConfigContract.KEY_COMMENT_DARK, value.commentDarkTint)
+            putFloat(prefix + ConfigContract.KEY_COMMENT_CORNER, value.commentCornerRadiusDp)
+            putBoolean(prefix + ConfigContract.KEY_COMMENT_OUTLINE, value.commentOutlineEnabled)
+            putFloat(prefix + ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
+            putBoolean(prefix + ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
         }
         putFloat(prefix + ConfigContract.KEY_ICON_SCALE, value.iconScale)
         putFloat(prefix + ConfigContract.KEY_TEXT_SIZE, value.textSize)

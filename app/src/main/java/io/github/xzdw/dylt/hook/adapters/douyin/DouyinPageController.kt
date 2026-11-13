@@ -270,6 +270,11 @@ internal class DouyinPageController(private val context: Context) {
 
         if (root.width <= 0 || root.height <= 0) return
 
+        // The comment sheet returns early below, which is exactly when its glass has to
+        // keep sampling. This call is throttled inside and does nothing while both
+        // switches are off.
+        DouyinFeedGlass.update(root, hostConfig)
+
         val now = SystemClock.uptimeMillis()
 
         // A comment sheet (and its 500ms close guard) owns the page while Douyin animates the
@@ -881,7 +886,18 @@ if ((progressId || view is SeekBar || progressLikeClass) && view.isAttachedToWin
 
             val params = feed.layoutParams
 
-            if (params is RelativeLayout.LayoutParams) {
+            // MATCH_PARENT on a vertical LinearLayout (or any parent that also holds the
+            // bottom tab) gives the pager the whole height and leaves MainBottomTabContainer's
+            // row at 0. The glass bar then hides, because it follows that row. Only drop the
+            // bottom margin in that case; the video still extends by the margin, and the tab
+            // keeps the height Douyin measured for it.
+            if (expansionCollapsesBottomTab(feed)) {
+                if (params is ViewGroup.MarginLayoutParams && params.bottomMargin != 0) {
+                    params.bottomMargin = 0
+                    feed.layoutParams = params
+                    feed.requestLayout()
+                }
+            } else if (params is RelativeLayout.LayoutParams) {
 
                 if (params.getRule(RelativeLayout.ABOVE) != 0 ||
                     params.getRule(RelativeLayout.ALIGN_PARENT_BOTTOM) == 0 ||
@@ -3150,6 +3166,7 @@ if ((progressId || view is SeekBar || progressLikeClass) && view.isAttachedToWin
     }
 
     fun dispose() {
+        DouyinFeedGlass.dispose()
         douyinMarginTargets.keys.forEach(DouyinControlMarginGuard::release)
         videoContainerProbe.clear()
         feedCornerMasks.dispose()
@@ -3182,6 +3199,38 @@ if ((progressId || view is SeekBar || progressLikeClass) && view.isAttachedToWin
         if (now - last < DOUYIN_PAGE_ADJUST_INTERVAL_MS) return false
         pageAdjustStamps[key] = now
         return true
+    }
+
+    /**
+     * Whether forcing [feed] to `MATCH_PARENT` would take the space the bottom tab is
+     * measured from. A vertical LinearLayout does this even when the tab is the next
+     * sibling; a tab container anywhere under the same parent does it too.
+     */
+    private fun expansionCollapsesBottomTab(feed: View): Boolean {
+        val parent = feed.parent as? ViewGroup ?: return false
+        for (index in 0 until parent.childCount) {
+            val child = parent.getChildAt(index)
+            if (child !== feed && looksLikeBottomTab(child)) return true
+        }
+        return false
+    }
+
+    /** The tab, or a shallow wrapper around it. A deep walk here would redo the page walk. */
+    private fun looksLikeBottomTab(view: View): Boolean {
+        if (view.javaClass.simpleName == "MainBottomTabContainer") return true
+        if (view !is ViewGroup) return false
+        var visited = 0
+        val stack = ArrayDeque<View>()
+        for (index in 0 until view.childCount) stack.add(view.getChildAt(index))
+        while (stack.isNotEmpty() && visited++ < 24) {
+            val node = stack.removeLast()
+            if (node.javaClass.simpleName == "MainBottomTabContainer") return true
+            if (node is ViewGroup) {
+                val limit = minOf(node.childCount, 6)
+                for (index in 0 until limit) stack.add(node.getChildAt(index))
+            }
+        }
+        return false
     }
 
     private fun viewResourceEntryName(view: View): String? {

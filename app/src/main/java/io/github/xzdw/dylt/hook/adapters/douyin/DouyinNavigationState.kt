@@ -477,6 +477,47 @@ internal class DouyinNavigationState(private val context: Context) : AppNavigati
  */
 internal const val DOUYIN_NATIVE_BAR_MIN_VISIBLE_FRACTION = 0.25f
 
+private val douyinRememberedBarHeights = java.util.WeakHashMap<View, Int>()
+
+/**
+ * Puts a collapsed-but-still-present bottom row back to the height it last had.
+ *
+ * Returns true when the row is the on-screen bar (full width, shown, already laid out)
+ * and a height was written back, so the glass gate must not treat this frame as "bar
+ * gone". The first collapse, before any positive measure, falls back to 56dp — the
+ * native row on 40.7/41.x is about that tall, and a zero-height row has no click target.
+ */
+internal fun restoreDouyinBottomRowHeight(source: View): Boolean {
+    if (!source.isShown || !source.isLaidOut) return false
+    val screenWidth = source.resources.displayMetrics.widthPixels
+    if (source.width < screenWidth * 0.7f) return false
+    val density = source.resources.displayMetrics.density
+    val fallback = (56f * density).roundToInt().coerceAtLeast(1)
+    val remembered = douyinRememberedBarHeights[source] ?: fallback
+    var changed = false
+    val params = source.layoutParams
+    if (params != null && params.height != remembered) {
+        params.height = remembered
+        source.layoutParams = params
+        changed = true
+    }
+    val parent = source.parent as? View
+    if (parent != null && parent.height <= 0 && parent.javaClass.simpleName == "MainBottomTabContainer") {
+        val parentHeight = douyinRememberedBarHeights[parent] ?: remembered
+        val parentParams = parent.layoutParams
+        if (parentParams != null && parentParams.height != parentHeight) {
+            parentParams.height = parentHeight
+            parent.layoutParams = parentParams
+            changed = true
+        }
+    }
+    if (changed) {
+        source.requestLayout()
+        (source.parent as? View)?.requestLayout()
+    }
+    return true
+}
+
 /**
  * Whether Douyin has taken its own bottom bar off screen, judged by the rendered rect.
  *
@@ -488,7 +529,22 @@ internal const val DOUYIN_NATIVE_BAR_MIN_VISIBLE_FRACTION = 0.25f
 internal fun douyinNativeBarOffScreen(source: View, scratch: Rect): Boolean {
     if (!source.isAttachedToWindow) return true
     if (source.visibility != View.VISIBLE) return true
-    if (source.width <= 0 || source.height <= 0) return true
+    if (source.width <= 0) return true
+    if (source.height > 0) {
+        douyinRememberedBarHeights[source] = source.height
+        val parent = source.parent as? View
+        if (parent != null && parent.height > 0 &&
+            parent.javaClass.simpleName == "MainBottomTabContainer"
+        ) {
+            douyinRememberedBarHeights[parent] = parent.height
+        }
+    } else {
+        // 41.1 sometimes lays the tab row out at height 0 while it is still the on-screen bar
+        // (full width, VISIBLE, already laid out). That is not Douyin paging the bar away —
+        // that path keeps the height and slides the row. Treating height 0 as "gone" hid the
+        // glass bar with it. Restore the last real height and keep the glass up.
+        return !restoreDouyinBottomRowHeight(source)
+    }
     // The geometry test alone is not enough, and sharing only that part with the page gate is
     // what let the two callers disagree about the same measurement. While the pager moves the
     // row's visible rect dips under the threshold for a moment even though the row, and every
