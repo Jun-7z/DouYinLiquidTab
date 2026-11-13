@@ -511,9 +511,42 @@ internal fun restoreDouyinBottomRowHeight(source: View): Boolean {
             changed = true
         }
     }
+    // On 41.1 the zero usually comes from a wrapper between the row and
+    // MainBottomTabContainer (container 129px > X.0ZiZ 129px > FrameLayout a99 0px > ... > row),
+    // so writing the row's own height alone leaves it at 0. Give every collapsed wrapper up to
+    // the container the container's height (or the remembered row height).
+    var container: View? = null
+    var probe: View? = source.parent as? View
+    var depth = 0
+    while (probe != null && depth++ < 6) {
+        if (probe.javaClass.simpleName == "MainBottomTabContainer") {
+            container = probe
+            break
+        }
+        probe = probe.parent as? View
+    }
+    if (container != null) {
+        if (container.height > 0) douyinRememberedBarHeights[container] = container.height
+        val wrapperHeight = container.height.takeIf { it > 0 }
+            ?: douyinRememberedBarHeights[container]
+            ?: remembered
+        var wrapper: View? = source.parent as? View
+        while (wrapper != null && wrapper !== container) {
+            if (wrapper.height <= 0 && wrapper.width >= screenWidth * 0.7f) {
+                val wrapperParams = wrapper.layoutParams
+                if (wrapperParams != null && wrapperParams.height != wrapperHeight) {
+                    wrapperParams.height = wrapperHeight
+                    wrapper.layoutParams = wrapperParams
+                    changed = true
+                }
+            }
+            wrapper = wrapper.parent as? View
+        }
+    }
     if (changed) {
         source.requestLayout()
         (source.parent as? View)?.requestLayout()
+        container?.requestLayout()
     }
     return true
 }

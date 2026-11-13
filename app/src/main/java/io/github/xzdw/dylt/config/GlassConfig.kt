@@ -150,23 +150,24 @@ data class GlassConfig(
      */
     val publishIcon: String = "",
     /**
-     * 右侧操作列: frosted glass behind the feed's avatar / like / comment / collect /
-     * share / music column. Off leaves Douyin's own buttons untouched.
+     * 右侧操作列: the like / comment / collect / share glyphs (and the avatar ring and
+     * music disc) are themselves liquid glass. Nothing is painted behind the buttons.
+     * Off leaves Douyin's own icons untouched. The knobs are this material's own;
+     * they do not move the shared bottom-bar sliders.
      *
-     * [actionGlassStyle] is [ACTION_GLASS_CAPSULE] (one panel) or [ACTION_GLASS_BUTTONS]
-     * (a circle behind each button). The other knobs are the panel's own material; they
-     * do not move the shared bottom-bar sliders.
+     * [actionTintMode] is [ACTION_TINT_WHITE] or [ACTION_TINT_AUTO]. [actionLikedTint]
+     * forces the digg heart to [LIKED_RED] while the video is liked, so a white glass
+     * heart does not hide the liked state.
      */
     val actionGlassEnabled: Boolean = false,
-    val actionGlassStyle: Int = ACTION_GLASS_CAPSULE,
-    val actionBlurRadius: Float = 12f,
-    val actionCornerRadiusDp: Float = 28f,
-    val actionTintAlpha: Float = 0.42f,
+    val actionBlurRadius: Float = 16f,
+    val actionTintAlpha: Float = 0.22f,
+    val actionTintMode: Int = ACTION_TINT_WHITE,
     val actionOutlineEnabled: Boolean = true,
-    val actionHighlight: Float = 0.45f,
-    val actionPaddingDp: Float = 8f,
+    val actionOutlineWidthDp: Float = 1.2f,
+    val actionHighlight: Float = 0.70f,
+    val actionLikedTint: Boolean = true,
     val actionScale: Float = 1f,
-    val actionOffsetYDp: Float = 0f,
     /**
      * 评论区: the comment sheet's own background becomes frosted glass over the video.
      * The fill stays opaque enough that comment text remains readable. Off restores
@@ -249,14 +250,12 @@ data class GlassConfig(
             .split('\n')
             .take(ENTRY_LABEL_COUNT)
             .joinToString("\n") { it.trim().take(ENTRY_LABEL_MAX_LENGTH) },
-        actionGlassStyle = actionGlassStyle.coerceIn(ACTION_GLASS_CAPSULE, ACTION_GLASS_BUTTONS),
         actionBlurRadius = actionBlurRadius.coerceIn(0f, 32f),
-        actionCornerRadiusDp = actionCornerRadiusDp.coerceIn(0f, 48f),
-        actionTintAlpha = actionTintAlpha.coerceIn(0.15f, 0.85f),
+        actionTintAlpha = actionTintAlpha.coerceIn(0f, 0.80f),
+        actionTintMode = actionTintMode.coerceIn(ACTION_TINT_WHITE, ACTION_TINT_AUTO),
+        actionOutlineWidthDp = actionOutlineWidthDp.coerceIn(0.5f, 3f),
         actionHighlight = actionHighlight.coerceIn(0f, 1f),
-        actionPaddingDp = actionPaddingDp.coerceIn(0f, 24f),
         actionScale = actionScale.coerceIn(0.8f, 1.3f),
-        actionOffsetYDp = actionOffsetYDp.coerceIn(-80f, 80f),
         commentBlurRadius = commentBlurRadius.coerceIn(0f, 40f),
         // Floor stays high on purpose: comment text sits on this fill.
         commentTintAlpha = commentTintAlpha.coerceIn(0.45f, 0.92f),
@@ -316,15 +315,14 @@ data class GlassConfig(
         putString(ConfigContract.KEY_TOP_BAR_TAB_ORDER, value.topBarTabOrder)
         putString(ConfigContract.KEY_PUBLISH_ICON, value.publishIcon)
         putBoolean(ConfigContract.KEY_ACTION_GLASS, value.actionGlassEnabled)
-        putInt(ConfigContract.KEY_ACTION_GLASS_STYLE, value.actionGlassStyle)
         putFloat(ConfigContract.KEY_ACTION_BLUR, value.actionBlurRadius)
-        putFloat(ConfigContract.KEY_ACTION_CORNER, value.actionCornerRadiusDp)
         putFloat(ConfigContract.KEY_ACTION_TINT, value.actionTintAlpha)
+        putInt(ConfigContract.KEY_ACTION_TINT_MODE, value.actionTintMode)
         putBoolean(ConfigContract.KEY_ACTION_OUTLINE, value.actionOutlineEnabled)
+        putFloat(ConfigContract.KEY_ACTION_OUTLINE_WIDTH, value.actionOutlineWidthDp)
         putFloat(ConfigContract.KEY_ACTION_HIGHLIGHT, value.actionHighlight)
-        putFloat(ConfigContract.KEY_ACTION_PADDING, value.actionPaddingDp)
+        putBoolean(ConfigContract.KEY_ACTION_LIKED_TINT, value.actionLikedTint)
         putFloat(ConfigContract.KEY_ACTION_SCALE, value.actionScale)
-        putFloat(ConfigContract.KEY_ACTION_OFFSET_Y, value.actionOffsetYDp)
         putBoolean(ConfigContract.KEY_COMMENT_GLASS, value.commentGlassEnabled)
         putFloat(ConfigContract.KEY_COMMENT_BLUR, value.commentBlurRadius)
         putFloat(ConfigContract.KEY_COMMENT_TINT, value.commentTintAlpha)
@@ -442,10 +440,12 @@ data class GlassConfig(
         const val BOTTOM_BAR_STYLE_ICON_ONLY = 1
         const val BOTTOM_BAR_STYLE_TEXT_ONLY = 2
 
-        /** 右侧操作列: one capsule behind the whole column. */
-        const val ACTION_GLASS_CAPSULE = 0
-        /** 右侧操作列: a circle behind each button. */
-        const val ACTION_GLASS_BUTTONS = 1
+        /** 右侧操作列着色: white glass, liked heart still turns red when that switch is on. */
+        const val ACTION_TINT_WHITE = 0
+        /** 右侧操作列着色: the glyph's own colour (a red heart stays red, a yellow star stays yellow). */
+        const val ACTION_TINT_AUTO = 1
+        /** Douyin's liked-heart red, kept so a glass heart still reads as liked. */
+        const val LIKED_RED: Int = 0xFFFE2C55.toInt()
 
         /** 评论区浅色底，不透明；透明度由 [commentTintAlpha] 另乘。 */
         const val DEFAULT_COMMENT_LIGHT: Int = 0xFFF4F0E8.toInt()
@@ -508,15 +508,14 @@ data class GlassConfig(
                 systemDark = bundle.getBoolean(ConfigContract.KEY_SYSTEM_DARK, false),
                 publishIcon = bundle.getString(ConfigContract.KEY_PUBLISH_ICON) ?: "",
                 actionGlassEnabled = bundle.getBoolean(ConfigContract.KEY_ACTION_GLASS, false),
-                actionGlassStyle = bundle.getInt(ConfigContract.KEY_ACTION_GLASS_STYLE, ACTION_GLASS_CAPSULE),
-                actionBlurRadius = bundle.getFloat(ConfigContract.KEY_ACTION_BLUR, 12f),
-                actionCornerRadiusDp = bundle.getFloat(ConfigContract.KEY_ACTION_CORNER, 28f),
-                actionTintAlpha = bundle.getFloat(ConfigContract.KEY_ACTION_TINT, 0.42f),
+                actionBlurRadius = bundle.getFloat(ConfigContract.KEY_ACTION_BLUR, 16f),
+                actionTintAlpha = bundle.getFloat(ConfigContract.KEY_ACTION_TINT, 0.22f),
+                actionTintMode = bundle.getInt(ConfigContract.KEY_ACTION_TINT_MODE, ACTION_TINT_WHITE),
                 actionOutlineEnabled = bundle.getBoolean(ConfigContract.KEY_ACTION_OUTLINE, true),
-                actionHighlight = bundle.getFloat(ConfigContract.KEY_ACTION_HIGHLIGHT, 0.45f),
-                actionPaddingDp = bundle.getFloat(ConfigContract.KEY_ACTION_PADDING, 8f),
+                actionOutlineWidthDp = bundle.getFloat(ConfigContract.KEY_ACTION_OUTLINE_WIDTH, 1.2f),
+                actionHighlight = bundle.getFloat(ConfigContract.KEY_ACTION_HIGHLIGHT, 0.70f),
+                actionLikedTint = bundle.getBoolean(ConfigContract.KEY_ACTION_LIKED_TINT, true),
                 actionScale = bundle.getFloat(ConfigContract.KEY_ACTION_SCALE, 1f),
-                actionOffsetYDp = bundle.getFloat(ConfigContract.KEY_ACTION_OFFSET_Y, 0f),
                 commentGlassEnabled = bundle.getBoolean(ConfigContract.KEY_COMMENT_GLASS, false),
                 commentBlurRadius = bundle.getFloat(ConfigContract.KEY_COMMENT_BLUR, 20f),
                 commentTintAlpha = bundle.getFloat(ConfigContract.KEY_COMMENT_TINT, 0.72f),

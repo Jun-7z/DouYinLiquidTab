@@ -17,23 +17,25 @@ import io.github.xzdw.dylt.hook.GlassHostLayout
 import io.github.xzdw.dylt.hookx.Xposed
 import io.github.xzdw.dylt.rendering.NativeBackdropBlur
 import java.lang.ref.WeakReference
-import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
  * Frosted glass for two Douyin surfaces the bars do not cover: the feed's right-hand
- * action column, and the comment sheet.
+ * action icons, and the comment sheet.
  *
- * Both are drawn with the same material as the bars (replayed display lists under
- * [NativeBackdropBlur], then the shared rounded-rect refraction shader, a tint, an
- * outline and a highlight). The column is found by the stable class
- * `FeedRightScaleView`, with a fallback that walks up from `VideoDiggView` until the
- * narrow stack also holds the avatar, share or music-cover view. The sheet is
- * `CommentNestedLayout`. Those names are present on 41.0.0 and 41.1.0.
+ * The icons (like, comment, collect, share, the avatar ring and the music disc) are
+ * masked liquid glass: the glyph's own alpha samples the blurred video. Nothing is
+ * painted behind the buttons, and the count text is left alone. See [DouyinIconGlass].
+ * The column is found by the stable class `FeedRightScaleView`, with a fallback that
+ * walks up from `VideoDiggView` until the narrow stack also holds the avatar, share
+ * or music-cover view.
  *
- * The glass is a background of the target, so it paints under the buttons and the
- * comment text and never changes the target's measured size. A real child would
- * reflow a vertical column the same way the bottom bar was collapsed.
+ * The comment sheet is `CommentNestedLayout`. On 41.1 that layout is full screen, so
+ * the glass is applied to the panel child rather than the transparent dismiss area.
+ * Those names are present on 41.0.0 and 41.1.0.
+ *
+ * Comment glass is a background of the panel, so it paints under the text and never
+ * changes the panel's measured size.
  */
 internal object DouyinFeedGlass {
     private const val WALK_BUDGET = 2_800
@@ -56,7 +58,6 @@ internal object DouyinFeedGlass {
     private var columnRef: WeakReference<View>? = null
     private var sheetRef: WeakReference<View>? = null
     private var inputRef: WeakReference<View>? = null
-    private var columnBackdrop: SurfaceBackdrop? = null
     private var sheetBackdrop: SurfaceBackdrop? = null
     private var inputBackdrop: SurfaceBackdrop? = null
     private var lastScanAt = 0L
@@ -76,7 +77,7 @@ internal object DouyinFeedGlass {
         val dark = isDark(config, root)
         if (config.actionGlassEnabled) {
             val column = columnRef?.get()?.takeIf { it.isAttachedToWindow && it.isShown }
-            if (column is ViewGroup) bindColumn(column, config, dark) else releaseColumn()
+            if (column is ViewGroup) bindColumn(column, config) else releaseColumn()
         } else {
             releaseColumn()
         }
@@ -113,6 +114,7 @@ internal object DouyinFeedGlass {
                 for (index in view.childCount - 1 downTo 0) stack.add(view.getChildAt(index))
             }
         }
+        if (sheet != null) sheet = panelOf(sheet, root)
         if (column == null) column = columnFromMarkers(root)
         columnRef = column?.let(::WeakReference)
         sheetRef = sheet?.let(::WeakReference)
@@ -124,6 +126,24 @@ internal object DouyinFeedGlass {
             loggedSheet = true
             Xposed.log("[OfflineGlass][CommentGlass] sheet ${sheet.javaClass.name} ${sheet.width}x${sheet.height}")
         }
+    }
+
+    /**
+     * On 41.1 `CommentNestedLayout` is full screen (1080x2400): a transparent tap-to-dismiss
+     * View fills the top and the real panel is a FrameLayout below it. Glassing the whole
+     * layout greyed out the video above the panel, so use the panel child when there is one.
+     */
+    private fun panelOf(sheet: ViewGroup, root: View): ViewGroup {
+        if (sheet.height < root.height * 0.9f) return sheet
+        var best: ViewGroup? = null
+        for (index in 0 until sheet.childCount) {
+            val child = sheet.getChildAt(index) as? ViewGroup ?: continue
+            if (child.visibility != View.VISIBLE || child.top <= 0) continue
+            if (child.width < root.width * 0.75f || child.height < root.height * 0.22f) continue
+            val current = best
+            if (current == null || child.height > current.height) best = child
+        }
+        return best ?: sheet
     }
 
     /** Walk up from a like/avatar/share button to the narrow stack that holds the column. */
@@ -164,58 +184,22 @@ internal object DouyinFeedGlass {
         val viewPos = IntArray(2).also(view::getLocationOnScreen)
         val rootPos = IntArray(2).also(root::getLocationOnScreen)
         val right = viewPos[0] + view.width - rootPos[0]
-        return right >= root.width * 0.82f && viewPos[0] - rootPos[0] >= root.width * 0.55f
+        // The feed pager keeps the neighbouring items attached and "shown" one screen above
+        // or below; only accept the one whose vertical centre is actually on screen.
+        val centerY = viewPos[1] - rootPos[1] + view.height / 2
+        return right >= root.width * 0.82f && viewPos[0] - rootPos[0] >= root.width * 0.55f &&
+            centerY in 0..root.height
     }
 
-    private fun bindColumn(column: ViewGroup, config: GlassConfig, dark: Boolean) {
-        val backdrop = columnBackdrop ?: SurfaceBackdrop(column.context, capsule = true).also {
-            columnBackdrop = it
-        }
-        val density = column.resources.displayMetrics.density
-        val pad = config.actionPaddingDp * density
-        val scale = config.actionScale
-        backdrop.configure(
-            host = column,
-            blurPx = config.actionBlurRadius * density,
-            cornerPx = if (config.actionGlassStyle == GlassConfig.ACTION_GLASS_BUTTONS) {
-                0f
-            } else {
-                config.actionCornerRadiusDp * density
-            },
-            tint = tint(if (dark) 0xFF161311.toInt() else 0xFFF4F0E8.toInt(), config.actionTintAlpha),
-            outline = config.actionOutlineEnabled,
-            highlight = config.actionHighlight,
-            circles = if (config.actionGlassStyle == GlassConfig.ACTION_GLASS_BUTTONS) {
-                buttonCircles(column, pad, scale)
-            } else {
-                emptyList()
-            },
-            inset = pad,
-            offsetY = config.actionOffsetYDp * density,
-            scale = scale,
-        )
-        install(column, backdrop)
-    }
-
-    private fun buttonCircles(column: ViewGroup, pad: Float, scale: Float): List<RectF> {
-        val circles = ArrayList<RectF>(8)
-        for (index in 0 until column.childCount) {
-            val child = column.getChildAt(index)
-            if (!child.isShown || child.width < 24 || child.height < 24) continue
-            if (child.width > column.width * 1.35f) continue
-            val radius = max(child.width, child.height) / 2f * scale
-            val cx = child.left + child.width / 2f
-            val cy = child.top + child.height / 2f
-            circles += RectF(cx - radius, cy - radius, cx + radius, cy + radius)
-        }
-        if (circles.isEmpty()) return circles
-        // The drawable is drawn in the host's bounds. Padding grows the glass, not the view,
-        // so the circles stay centred on the buttons.
-        if (pad != 0f) circles.forEach { it.inset(-pad * 0.15f, -pad * 0.15f) }
-        return circles
+    private fun bindColumn(column: ViewGroup, config: GlassConfig) {
+        // 1.7.6 painted a capsule or circles behind the buttons. Drop that if a hot update
+        // left it on the column; the icons themselves are the glass now.
+        if (column.background is SurfaceBackdrop) column.background = null
+        DouyinIconGlass.bind(column, config)
     }
 
     private fun bindSheet(sheet: ViewGroup, root: View, config: GlassConfig, dark: Boolean) {
+        sheetBackdrop?.takeIf { it.host != null && it.host !== sheet }?.let { releaseSheet() }
         val backdrop = sheetBackdrop ?: SurfaceBackdrop(sheet.context, capsule = true).also {
             sheetBackdrop = it
         }
@@ -323,8 +307,7 @@ internal object DouyinFeedGlass {
     }
 
     private fun releaseColumn() {
-        columnBackdrop?.let { restore(it) }
-        columnBackdrop = null
+        DouyinIconGlass.release()
     }
 
     private fun releaseSheet() {
@@ -399,9 +382,6 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
     private val rect = RectF()
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val location = IntArray(2)
-    private val childLocation = IntArray(2)
-    private var renderField: java.lang.reflect.Field? = null
 
     fun configure(
         host: View,
@@ -465,7 +445,7 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
             canvas.drawRenderNode(sceneNode)
         }
         fill.color = tint
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
+        canvas.drawPath(path, fill)
         canvas.restore()
         if (outline || highlight > 0.01f) {
             stroke.strokeWidth = host.resources.displayMetrics.density
@@ -494,6 +474,9 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
         val grow = inset
         val dx = (width - width * scale) / 2f
         rect.set(dx - grow, offsetY - grow, width - dx + grow, height * scale + offsetY + grow)
+        // The blurred scene only covers the host's own bounds; a shape that grows past them
+        // showed an unblurred tinted strip and an outline running off the screen edge.
+        rect.intersect(0f, 0f, width, height)
         val radii = floatArrayOf(
             cornerPx, cornerPx, cornerPx, cornerPx,
             bottomCornerPx, bottomCornerPx, bottomCornerPx, bottomCornerPx,
@@ -522,37 +505,66 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
         }
     }
 
-    private fun record(host: View, width: Int, height: Int): Boolean {
+    private fun record(host: View, width: Int, height: Int): Boolean =
+        BackdropRecorder.record(host, sceneNode, width, height)
+
+    override fun setAlpha(alpha: Int) = Unit
+    @Deprecated("Drawable.setColorFilter is deprecated; the glass tint is its own paint.")
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) = Unit
+    @Deprecated("Drawable.getOpacity is deprecated.")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+}
+
+/** Scene re-record interval, kept out of the drawable so the draw path stays allocation-free. */
+private const val DouyinFeedGlassRefresh = 700L
+
+/**
+ * Replays whatever is already drawn behind [host] into [sceneNode], in host-local pixels.
+ * The node's position has to be set: a [RenderNode] drawn with `drawRenderNode` is clipped
+ * to its position, and that rect defaults to 0×0, which is why a blur layer can be
+ * recorded and still never appear.
+ */
+internal object BackdropRecorder {
+    private val location = IntArray(2)
+    private val childLocation = IntArray(2)
+    private var renderField: java.lang.reflect.Field? = null
+
+    fun record(host: View, sceneNode: RenderNode, width: Int, height: Int): Boolean {
+        if (width <= 0 || height <= 0) return false
+        sceneNode.setPosition(0, 0, width, height)
         val recording = sceneNode.beginRecording(width, height)
-        recording.clipRect(0f, 0f, width.toFloat(), height.toFloat())
-        host.getLocationInWindow(location)
         var drawn = 0
-        var node: View = host
-        var guard = 0
-        while (guard++ < 8) {
-            val parent = node.parent as? ViewGroup ?: break
-            val index = parent.indexOfChild(node)
-            for (childIndex in 0 until index) {
-                val sibling = parent.getChildAt(childIndex) ?: continue
-                if (sibling is GlassHostLayout || sibling is DouyinTopTabMenu) continue
-                if (sibling.visibility != View.VISIBLE || sibling.alpha <= 0.01f) continue
-                if (sibling.width <= 0 || sibling.height <= 0) continue
-                val render = renderNode(sibling) ?: continue
-                if (!render.hasDisplayList()) continue
-                sibling.getLocationInWindow(childLocation)
-                recording.save()
-                recording.translate(
-                    (childLocation[0] - location[0]).toFloat(),
-                    (childLocation[1] - location[1]).toFloat(),
-                )
-                recording.drawRenderNode(render)
-                recording.restore()
-                drawn++
+        try {
+            recording.clipRect(0f, 0f, width.toFloat(), height.toFloat())
+            host.getLocationInWindow(location)
+            var node: View = host
+            var guard = 0
+            while (guard++ < 8) {
+                val parent = node.parent as? ViewGroup ?: break
+                val index = parent.indexOfChild(node)
+                for (childIndex in 0 until index) {
+                    val sibling = parent.getChildAt(childIndex) ?: continue
+                    if (sibling is GlassHostLayout || sibling is DouyinTopTabMenu) continue
+                    if (sibling.visibility != View.VISIBLE || sibling.alpha <= 0.01f) continue
+                    if (sibling.width <= 0 || sibling.height <= 0) continue
+                    val render = renderNode(sibling) ?: continue
+                    if (!render.hasDisplayList()) continue
+                    sibling.getLocationInWindow(childLocation)
+                    recording.save()
+                    recording.translate(
+                        (childLocation[0] - location[0]).toFloat(),
+                        (childLocation[1] - location[1]).toFloat(),
+                    )
+                    recording.drawRenderNode(render)
+                    recording.restore()
+                    drawn++
+                }
+                if (parent.id == android.R.id.content) break
+                node = parent
             }
-            if (parent.id == android.R.id.content) break
-            node = parent
+        } finally {
+            sceneNode.endRecording()
         }
-        sceneNode.endRecording()
         return drawn > 0
     }
 
@@ -568,13 +580,4 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
         return runCatching { Xposed.callMethod(view, "updateDisplayListIfDirty") as? RenderNode }.getOrNull()
             ?: retained
     }
-
-    override fun setAlpha(alpha: Int) = Unit
-    @Deprecated("Drawable.setColorFilter is deprecated; the glass tint is its own paint.")
-    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) = Unit
-    @Deprecated("Drawable.getOpacity is deprecated.")
-    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
 }
-
-/** Scene re-record interval, kept out of the drawable so the draw path stays allocation-free. */
-private const val DouyinFeedGlassRefresh = 700L

@@ -120,14 +120,20 @@ object ConfigContract {
      */
     const val KEY_PUBLISH_ICON = "publish_icon"
 
-    /** 右侧操作列液态玻璃，以及它自己的材质参数。默认关闭。 */
+    /**
+     * 右侧操作列：图标本身的液态玻璃（不在按钮背后铺底）。默认关闭。
+     * 旧的样式 / 圆角 / 内边距 / 垂直偏移键不再读取，留在这里避免外部拼错名字。
+     */
     const val KEY_ACTION_GLASS = "action_glass"
     const val KEY_ACTION_GLASS_STYLE = "action_glass_style"
     const val KEY_ACTION_BLUR = "action_blur"
     const val KEY_ACTION_CORNER = "action_corner"
     const val KEY_ACTION_TINT = "action_tint"
+    const val KEY_ACTION_TINT_MODE = "action_tint_mode"
     const val KEY_ACTION_OUTLINE = "action_outline"
+    const val KEY_ACTION_OUTLINE_WIDTH = "action_outline_width"
     const val KEY_ACTION_HIGHLIGHT = "action_highlight"
+    const val KEY_ACTION_LIKED_TINT = "action_liked_tint"
     const val KEY_ACTION_PADDING = "action_padding"
     const val KEY_ACTION_SCALE = "action_scale"
     const val KEY_ACTION_OFFSET_Y = "action_offset_y"

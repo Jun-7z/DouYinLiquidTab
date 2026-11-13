@@ -561,33 +561,30 @@ object HookConfigReader {
         actionGlassEnabled = if (prefix == GLOBAL) {
             p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_GLASS, defaults.actionGlassEnabled)
         } else defaults.actionGlassEnabled,
-        actionGlassStyle = if (prefix == GLOBAL) {
-            p.getInt(GLOBAL + ConfigContract.KEY_ACTION_GLASS_STYLE, defaults.actionGlassStyle)
-        } else defaults.actionGlassStyle,
         actionBlurRadius = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_BLUR, defaults.actionBlurRadius)
         } else defaults.actionBlurRadius,
-        actionCornerRadiusDp = if (prefix == GLOBAL) {
-            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_CORNER, defaults.actionCornerRadiusDp)
-        } else defaults.actionCornerRadiusDp,
         actionTintAlpha = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_TINT, defaults.actionTintAlpha)
         } else defaults.actionTintAlpha,
+        actionTintMode = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_ACTION_TINT_MODE, defaults.actionTintMode)
+        } else defaults.actionTintMode,
         actionOutlineEnabled = if (prefix == GLOBAL) {
             p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_OUTLINE, defaults.actionOutlineEnabled)
         } else defaults.actionOutlineEnabled,
+        actionOutlineWidthDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_OUTLINE_WIDTH, defaults.actionOutlineWidthDp)
+        } else defaults.actionOutlineWidthDp,
         actionHighlight = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_HIGHLIGHT, defaults.actionHighlight)
         } else defaults.actionHighlight,
-        actionPaddingDp = if (prefix == GLOBAL) {
-            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_PADDING, defaults.actionPaddingDp)
-        } else defaults.actionPaddingDp,
+        actionLikedTint = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_LIKED_TINT, defaults.actionLikedTint)
+        } else defaults.actionLikedTint,
         actionScale = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_SCALE, defaults.actionScale)
         } else defaults.actionScale,
-        actionOffsetYDp = if (prefix == GLOBAL) {
-            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_OFFSET_Y, defaults.actionOffsetYDp)
-        } else defaults.actionOffsetYDp,
         commentGlassEnabled = if (prefix == GLOBAL) {
             p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_GLASS, defaults.commentGlassEnabled)
         } else defaults.commentGlassEnabled,

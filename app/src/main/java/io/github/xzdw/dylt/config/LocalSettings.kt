@@ -487,33 +487,30 @@ object LocalSettings {
         actionGlassEnabled = if (prefix == GLOBAL) {
             p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_GLASS, defaults.actionGlassEnabled)
         } else defaults.actionGlassEnabled,
-        actionGlassStyle = if (prefix == GLOBAL) {
-            p.getInt(GLOBAL + ConfigContract.KEY_ACTION_GLASS_STYLE, defaults.actionGlassStyle)
-        } else defaults.actionGlassStyle,
         actionBlurRadius = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_BLUR, defaults.actionBlurRadius)
         } else defaults.actionBlurRadius,
-        actionCornerRadiusDp = if (prefix == GLOBAL) {
-            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_CORNER, defaults.actionCornerRadiusDp)
-        } else defaults.actionCornerRadiusDp,
         actionTintAlpha = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_TINT, defaults.actionTintAlpha)
         } else defaults.actionTintAlpha,
+        actionTintMode = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_ACTION_TINT_MODE, defaults.actionTintMode)
+        } else defaults.actionTintMode,
         actionOutlineEnabled = if (prefix == GLOBAL) {
             p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_OUTLINE, defaults.actionOutlineEnabled)
         } else defaults.actionOutlineEnabled,
+        actionOutlineWidthDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_OUTLINE_WIDTH, defaults.actionOutlineWidthDp)
+        } else defaults.actionOutlineWidthDp,
         actionHighlight = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_HIGHLIGHT, defaults.actionHighlight)
         } else defaults.actionHighlight,
-        actionPaddingDp = if (prefix == GLOBAL) {
-            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_PADDING, defaults.actionPaddingDp)
-        } else defaults.actionPaddingDp,
+        actionLikedTint = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_LIKED_TINT, defaults.actionLikedTint)
+        } else defaults.actionLikedTint,
         actionScale = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_SCALE, defaults.actionScale)
         } else defaults.actionScale,
-        actionOffsetYDp = if (prefix == GLOBAL) {
-            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_OFFSET_Y, defaults.actionOffsetYDp)
-        } else defaults.actionOffsetYDp,
         commentGlassEnabled = if (prefix == GLOBAL) {
             p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_GLASS, defaults.commentGlassEnabled)
         } else defaults.commentGlassEnabled,
@@ -589,15 +586,14 @@ object LocalSettings {
             // 底栏显示样式，和它派生出的仅图标标记（iconOnly 由 normalized() 重新推导）。
             putInt(prefix + ConfigContract.KEY_BOTTOM_BAR_STYLE, value.bottomBarStyle)
             putBoolean(prefix + ConfigContract.KEY_ACTION_GLASS, value.actionGlassEnabled)
-            putInt(prefix + ConfigContract.KEY_ACTION_GLASS_STYLE, value.actionGlassStyle)
             putFloat(prefix + ConfigContract.KEY_ACTION_BLUR, value.actionBlurRadius)
-            putFloat(prefix + ConfigContract.KEY_ACTION_CORNER, value.actionCornerRadiusDp)
             putFloat(prefix + ConfigContract.KEY_ACTION_TINT, value.actionTintAlpha)
+            putInt(prefix + ConfigContract.KEY_ACTION_TINT_MODE, value.actionTintMode)
             putBoolean(prefix + ConfigContract.KEY_ACTION_OUTLINE, value.actionOutlineEnabled)
+            putFloat(prefix + ConfigContract.KEY_ACTION_OUTLINE_WIDTH, value.actionOutlineWidthDp)
             putFloat(prefix + ConfigContract.KEY_ACTION_HIGHLIGHT, value.actionHighlight)
-            putFloat(prefix + ConfigContract.KEY_ACTION_PADDING, value.actionPaddingDp)
+            putBoolean(prefix + ConfigContract.KEY_ACTION_LIKED_TINT, value.actionLikedTint)
             putFloat(prefix + ConfigContract.KEY_ACTION_SCALE, value.actionScale)
-            putFloat(prefix + ConfigContract.KEY_ACTION_OFFSET_Y, value.actionOffsetYDp)
             putBoolean(prefix + ConfigContract.KEY_COMMENT_GLASS, value.commentGlassEnabled)
             putFloat(prefix + ConfigContract.KEY_COMMENT_BLUR, value.commentBlurRadius)
             putFloat(prefix + ConfigContract.KEY_COMMENT_TINT, value.commentTintAlpha)
