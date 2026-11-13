@@ -84,7 +84,7 @@ DouYinLiquidTab 不修改抖音的 APK，也不替换 Activity。它通过 LSPos
 
 ## 当前正式适配范围
 
-本构建**只适配抖音（`com.ss.android.ugc.aweme`）**。作用域由 `app/src/main/resources/META-INF/xposed/scope.list`
+本构建**只适配抖音（`com.ss.android.ugc.aweme`）**，覆盖 40.6 到 41.1（含 41.0.x 与官方 41.1.0 / versionCode 410101）。底栏工厂类每次发版都会换混淆名，模块按字符串锚点现场查找，不再靠一张写死的类名表。作用域由 `app/src/main/resources/META-INF/xposed/scope.list`
 提供，模块页面清单由 `AppCatalog` 管理，两者都由 `tools/verify-adapter-workspaces.ps1` 校验。
 
 抖音底栏按参考稿实现为扁平样式：左侧胶囊内是四个纯文字入口（首页 / 朋友 / 消息 / 我），
