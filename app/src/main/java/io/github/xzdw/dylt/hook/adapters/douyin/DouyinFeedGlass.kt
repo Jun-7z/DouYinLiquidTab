@@ -19,6 +19,7 @@ import io.github.xzdw.dylt.hookx.MethodHook
 import io.github.xzdw.dylt.hookx.Xposed
 import io.github.xzdw.dylt.rendering.NativeBackdropBlur
 import java.lang.ref.WeakReference
+import java.util.WeakHashMap
 import kotlin.math.roundToInt
 
 /**
@@ -34,9 +35,12 @@ import kotlin.math.roundToInt
  *
  * The comment sheet is `com.ss.android.ugc.aweme.comment.widget.CommentNestedLayout`.
  * On 41.1 that layout is full screen, so the glass is applied to the panel child rather
- * than the transparent dismiss area. The input bar is
- * `com.ss.android.ugc.aweme.comment.ui.CommentBottomAreaLayout` (its own opaque fill, or
- * the wide child that actually paints one). Both names are present on 41.0.0 and 41.1.0.
+ * than the transparent dismiss area. The rounded input pill keeps its own background.
+ * The full-width strip it sits on (`CommentBottomAreaLayout`, `InterceptTouchFrameLayout`,
+ * `mExternalInputContainer`) is cleared when the sheet glass is already behind it, or
+ * given that same glass when the strip is a sibling of the panel. List containers such
+ * as `CommentRecyclerView` are cleared so the header and the list share one surface.
+ * These names are present on 41.0.0 and 41.1.0.
  *
  * Glass is installed from the view's own pre-draw (armed in the constructor) so the
  * first frame already has the tint. The blur catches up on that same draw.
@@ -80,6 +84,8 @@ internal object DouyinFeedGlass {
     private var loggedInput = false
     private var nestedHooked = false
     private var inputHooked = false
+    /** Views whose background was cleared, so the log names each of them once. */
+    private val clearedViews = WeakHashMap<View, String>()
 
     fun update(root: ViewGroup, config: GlassConfig?) {
         if (config == null || (!config.actionGlassEnabled && !config.commentGlassEnabled)) {
@@ -178,9 +184,11 @@ internal object DouyinFeedGlass {
     private fun onInputPreDraw(view: View) {
         val config = latestConfig ?: return
         if (!config.commentGlassEnabled || !config.commentInputGlass || !view.isShown || view.height <= 0) return
+        // Comment cells reuse CommentBottomAreaLayout. Only the bar outside the list is the input dock.
+        if (insideList(view)) return
         val root = latestRoot?.get()
         if (root != null && !verticallyOnScreen(view, root)) return
-        bindInput(view, config, isDark(config, view))
+        openInputDock(view, sheetRef?.get(), config, isDark(config, view))
     }
 
     private fun verticallyOnScreen(view: View, root: View): Boolean {
@@ -348,10 +356,8 @@ internal object DouyinFeedGlass {
             releaseInput()
         } else {
             val anchor = findInput(nestedRef?.get() ?: sheet)
-            if (anchor != null && anchor !== sheet) bindInput(anchor, config, dark)
+            if (anchor != null && anchor !== sheet) openInputDock(anchor, sheet, config, dark)
             else {
-                // The input bar's own pre-draw may already have bound it. Dropping that
-                // glass here put the opaque fill back for the rest of the frame.
                 val held = inputRef?.get()
                 if (held == null || !held.isAttachedToWindow || !held.isShown) releaseInput()
             }
@@ -359,71 +365,195 @@ internal object DouyinFeedGlass {
     }
 
     /**
-     * `CommentBottomAreaLayout` is the input bar on 41.0 and 41.1. The pixels the user
-     * sees are often a wide child with its own opaque background, so the glass replaces
-     * that fill (and any other wide fill on top of it) instead of sitting behind it.
+     * The rounded field keeps its own background. Wide containers behind it
+     * (`CommentBottomAreaLayout`, `InterceptTouchFrameLayout`, the fragment's
+     * `mExternalInputContainer`) are the disconnected strip: clear them when the
+     * sheet glass is already underneath, otherwise paint that same glass on the
+     * outermost strip.
      */
-    private fun bindInput(anchor: View, config: GlassConfig, dark: Boolean) {
-        val existing = inputBackdrop?.host
-        val host = if (existing != null && existing.isAttachedToWindow && isUnder(existing, anchor)) {
-            existing
-        } else {
-            paintedSurface(anchor) ?: anchor
+    private fun openInputDock(anchor: View, sheet: View?, config: GlassConfig, dark: Boolean) {
+        // 1.7.8 put glass on the pill or on an inner bar. Put that background back
+        // before deciding which strip to clear, so the original fill is what we remove.
+        val host = inputBackdrop?.host
+        if (host != null && (keepsOwnBackground(host) || (sheet != null && isUnder(host, sheet)))) {
+            releaseInput()
         }
-        inputBackdrop?.takeIf { it.host != null && it.host !== host }?.let {
-            restore(it)
-            inputBackdrop = null
+        val rootWidth = (sheet?.width ?: anchor.rootView.width).coerceAtLeast(1)
+        val density = anchor.resources.displayMetrics.density
+        val maxDock = 320f * density
+        val outside = ArrayList<View>(4)
+        var node: View? = anchor
+        var guard = 0
+        while (node != null && guard++ < 10) {
+            if (node === sheet || node.javaClass.simpleName == SHEET_CLASS) break
+            // The pill's own box is about as wide as the field. The disconnected strip
+            // is the full-bleed parent behind that box, so only a view clearly wider
+            // than the anchor (or full-bleed itself) is the strip.
+            val widerThanAnchor = node.width >= anchor.width + (16f * density).toInt()
+            val fullBleed = node.width >= rootWidth * 0.97f
+            if ((widerThanAnchor || fullBleed) && !keepsOwnBackground(node)) {
+                val inside = sheet != null && isUnder(node, sheet)
+                if (inside) {
+                    clearBackground(node, "input-dock")
+                } else if (node.height in (24f * density).toInt()..maxDock.toInt()) {
+                    outside.add(node)
+                }
+            }
+            clearDockSiblings(node, sheet, rootWidth)
+            node = node.parent as? View
         }
-        val inputGlass = inputBackdrop ?: SurfaceBackdrop(host.context, capsule = true).also {
+        if (outside.isEmpty()) {
+            if (!loggedInput) {
+                loggedInput = true
+                Xposed.log(
+                    "[OfflineGlass][CommentGlass] input dock cleared under sheet " +
+                        "${anchor.javaClass.name} id=${resourceId(anchor)} ${anchor.width}x${anchor.height}",
+                )
+            }
+            return
+        }
+        val glassHost = outside.last()
+        for (index in 0 until outside.lastIndex) clearBackground(outside[index], "input-dock")
+        val inputGlass = inputBackdrop ?: SurfaceBackdrop(glassHost.context, capsule = true).also {
             inputBackdrop = it
         }
-        val density = host.resources.displayMetrics.density
         inputGlass.configure(
-            host = host,
+            host = glassHost,
             blurPx = config.commentBlurRadius * density,
-            cornerPx = 14f * density,
+            cornerPx = 0f,
+            bottomCornerPx = 0f,
             tint = tint(if (dark) config.commentDarkTint else config.commentLightTint, config.commentTintAlpha),
-            outline = config.commentOutlineEnabled,
+            outline = false,
             highlight = config.commentHighlight * 0.6f,
             circles = emptyList(),
             inset = 0f,
             offsetY = 0f,
             scale = 1f,
         )
-        install(host, inputGlass)
-        clearInputCovers(anchor, host)
-        inputRef = WeakReference(host)
+        install(glassHost, inputGlass)
+        inputRef = WeakReference(glassHost)
         if (!loggedInput) {
             loggedInput = true
             Xposed.log(
-                "[OfflineGlass][CommentGlass] input ${anchor.javaClass.name} id=${resourceId(anchor)} " +
-                    "${anchor.width}x${anchor.height} surface ${host.javaClass.name} id=${resourceId(host)}",
+                "[OfflineGlass][CommentGlass] input dock ${glassHost.javaClass.name} id=${resourceId(glassHost)} " +
+                    "${glassHost.width}x${glassHost.height} anchor ${anchor.javaClass.name} id=${resourceId(anchor)}",
             )
         }
     }
 
-    /** Opaque cards inside the sheet would hide the glass. Lists and text are left alone. */
+    /** Full-width siblings of the dock: the opaque strip, its shadow, and hairline dividers. */
+    private fun clearDockSiblings(node: View, sheet: View?, rootWidth: Int) {
+        val parent = node.parent as? ViewGroup ?: return
+        if (parent === sheet || parent.javaClass.simpleName == SHEET_CLASS) return
+        val density = node.resources.displayMetrics.density
+        for (index in 0 until parent.childCount) {
+            val sibling = parent.getChildAt(index)
+            if (sibling === node || keepsOwnBackground(sibling)) continue
+            val background = sibling.background ?: continue
+            if (background is SurfaceBackdrop) continue
+            val fullBleed = sibling.width >= rootWidth * 0.97f
+            val hairline = sibling.height <= (12f * density) && sibling.width >= rootWidth * 0.72f
+            if (!fullBleed && !hairline) continue
+            val inside = sheet != null && isUnder(sibling, sheet)
+            if (inside || hairline) clearBackground(sibling, "input-sibling")
+        }
+    }
+
+    /**
+     * One glass surface sits on the panel. Header, list and the bottom dock all have to
+     * let it show through. `CommentRecyclerView` and the full-width containers around it
+     * used to keep their own fill, so the title looked frosted and the list did not.
+     * The rounded input pill is not one of those fills.
+     */
     private fun clearCoveringBackgrounds(sheet: ViewGroup) {
-        val minWidth = sheet.width * 0.7f
-        val minHeight = sheet.height * 0.45f
-        for (index in 0 until sheet.childCount) {
-            val child = sheet.getChildAt(index)
-            if (child.width < minWidth || child.height < minHeight) continue
-            val name = child.javaClass.simpleName
-            if (name.contains("Recycler") || name.contains("List") || name.contains("Edit")) continue
-            if (child.background != null && child.background !is SurfaceBackdrop) {
-                rememberBackground(child)
-                child.background = null
+        val minWidth = sheet.width * 0.82f
+        val minHeight = 8f * sheet.resources.displayMetrics.density
+        var visited = 0
+        val stack = ArrayDeque<View>()
+        stack.add(sheet)
+        while (stack.isNotEmpty() && visited++ < 1_600) {
+            val view = stack.removeLast()
+            val recycler = view.javaClass.name.contains("Recycler")
+            val wide = view.width >= minWidth || (recycler && view.width >= sheet.width * 0.6f)
+            if (view !== sheet && wide && view.height >= minHeight && isSheetFill(view)) {
+                clearBackground(view, if (recycler) "list" else "sheet")
+            }
+            if (view is ViewGroup && view.childCount > 0 && visited < 1_600) {
+                for (index in view.childCount - 1 downTo 0) stack.add(view.getChildAt(index))
             }
         }
     }
 
+    /** Full-width solid containers and list surfaces. The input pill and pictures stay. */
+    private fun isSheetFill(view: View): Boolean {
+        if (keepsOwnBackground(view)) return false
+        if (view is android.widget.TextView || view is android.widget.ImageView) return false
+        val name = view.javaClass.name
+        if (name.contains("Image") || name.contains("Button")) return false
+        return view is ViewGroup || name.contains("Recycler") || view.javaClass == View::class.java
+    }
+
+    private fun keepsOwnBackground(view: View): Boolean {
+        if (view is android.widget.EditText) return true
+        val name = view.javaClass.name
+        return name.contains("EditText") || name.contains("MentionEdit")
+    }
+
+    private fun insideList(view: View): Boolean {
+        var node = view.parent
+        var guard = 0
+        while (node is View && guard++ < 14) {
+            val name = node.javaClass.name
+            if (name.contains("Recycler")) return true
+            node = node.parent
+        }
+        return false
+    }
+
+    private fun clearBackground(view: View, reason: String) {
+        val background = view.background ?: return
+        if (background is SurfaceBackdrop) return
+        if (keepsOwnBackground(view)) return
+        rememberBackground(view)
+        view.background = null
+        if (clearedViews.put(view, reason) == null) {
+            Xposed.log(
+                "[OfflineGlass][CommentGlass] clear $reason ${view.javaClass.name} " +
+                    "id=${resourceId(view)} ${view.width}x${view.height}",
+            )
+        }
+    }
+
     private fun findInput(scope: View): View? {
-        findByName(scope, INPUT_CLASS, 0.55f)?.let { return it }
+        findEditOutsideList(scope)?.let { return it }
+        findByName(scope, INPUT_CLASS, 0.55f)?.takeIf { !insideList(it) }?.let { return it }
+        findByName(scope, "InterceptTouchFrameLayout", 0.55f)?.takeIf { !insideList(it) }?.let { return it }
         val edit = findByName(scope, INPUT_EDIT, 0.35f)
             ?: findByName(scope, "MentionEditText", 0.35f)
             ?: findHeuristic(scope)
-        return climbToBar(edit, scope)
+        return edit?.takeIf { !insideList(it) }
+    }
+
+    /** The real composer field sits under the list, not inside a comment row. */
+    private fun findEditOutsideList(scope: View): View? {
+        var found: View? = null
+        var visited = 0
+        val stack = ArrayDeque<View>()
+        stack.add(scope)
+        while (stack.isNotEmpty() && visited++ < 800) {
+            val view = stack.removeLast()
+            val name = view.javaClass.simpleName
+            if (view !== scope && view.isShown && view.width >= scope.width * 0.35f &&
+                (name == INPUT_EDIT || name == "MentionEditText" || name == "FixedHintMentionEditText") &&
+                !insideList(view)
+            ) {
+                found = view
+            }
+            if (view is ViewGroup && view.childCount > 0 && visited < 800) {
+                for (index in view.childCount - 1 downTo 0) stack.add(view.getChildAt(index))
+            }
+        }
+        return found
     }
 
     private fun findByName(scope: View, simple: String, minWidthFraction: Float): View? {
@@ -483,75 +613,6 @@ internal object DouyinFeedGlass {
         return false
     }
 
-    /** Walk up to `CommentBottomAreaLayout`, or the widest bar that is not the sheet itself. */
-    private fun climbToBar(start: View?, scope: View): View? {
-        var node = start ?: return null
-        if (node.javaClass.simpleName == SHEET_CLASS) return null
-        var guard = 0
-        while (guard++ < 8) {
-            if (node.javaClass.simpleName == INPUT_CLASS) return node
-            val parent = node.parent as? View ?: return node
-            if (parent === scope || parent.javaClass.simpleName == SHEET_CLASS) return node
-            if (parent.width < scope.width * 0.55f) return node
-            node = parent
-        }
-        return node
-    }
-
-    /** The wide view whose background is the fill the user actually sees. */
-    private fun paintedSurface(anchor: View): View? {
-        val minWidth = anchor.width * 0.5f
-        val minHeight = 24f * anchor.resources.displayMetrics.density
-        var best: View? = null
-        var bestArea = 0
-        var visited = 0
-        val stack = ArrayDeque<View>()
-        stack.add(anchor)
-        while (stack.isNotEmpty() && visited++ < 200) {
-            val view = stack.removeLast()
-            val background = view.background
-            if (background != null && background !is SurfaceBackdrop &&
-                view.width >= minWidth && view.height >= minHeight
-            ) {
-                val area = view.width * view.height
-                if (area > bestArea) {
-                    bestArea = area
-                    best = view
-                }
-            }
-            if (view is ViewGroup && view.childCount > 0 && visited < 200) {
-                for (index in view.childCount - 1 downTo 0) stack.add(view.getChildAt(index))
-            }
-        }
-        return best
-    }
-
-    /** Wide opaque fills drawn above the glass host would hide it. Lists and icons stay. */
-    private fun clearInputCovers(anchor: View, glassHost: View) {
-        val minWidth = anchor.width * 0.5f
-        val minHeight = 20f * anchor.resources.displayMetrics.density
-        var visited = 0
-        val stack = ArrayDeque<View>()
-        stack.add(anchor)
-        while (stack.isNotEmpty() && visited++ < 200) {
-            val view = stack.removeLast()
-            if (view !== glassHost) {
-                val name = view.javaClass.simpleName
-                val background = view.background
-                val skip = name.contains("Recycler") || name.contains("List")
-                if (!skip && background != null && background !is SurfaceBackdrop &&
-                    view.width >= minWidth && view.height >= minHeight
-                ) {
-                    rememberBackground(view)
-                    view.background = null
-                }
-            }
-            if (view is ViewGroup && view.childCount > 0 && visited < 200) {
-                for (index in view.childCount - 1 downTo 0) stack.add(view.getChildAt(index))
-            }
-        }
-    }
-
     private fun resourceId(view: View): String {
         val id = view.id
         if (id == View.NO_ID) return "none"
@@ -587,6 +648,7 @@ internal object DouyinFeedGlass {
         releaseInput()
         // Covering backgrounds cleared for the sheet are restored with everyone else.
         restoreAll()
+        clearedViews.clear()
     }
 
     private fun releaseInput() {
