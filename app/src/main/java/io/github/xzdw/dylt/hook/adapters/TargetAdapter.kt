@@ -95,6 +95,18 @@ internal interface TargetAdapter {
      * change can open the circle without reinstalling the host.
      */
     val navigationActionLeftGapDp: Float get() = 0f
+    /**
+     * Apply a config before the host rebuilds its panel path. Default is a no-op.
+     * Douyin uses it so the standalone plus circle is in the path on the same frame
+     * the slot setting changes.
+     */
+    fun syncNavigationChrome(config: GlassConfig) = Unit
+    /**
+     * Diameter of a glass circle drawn between the pill and the trailing action,
+     * as a fraction of the bar height. Zero keeps the publish-mode path: pill, one
+     * gap, one trailing circle.
+     */
+    fun navigationMiddleButtonFraction(): Float = 0f
     /** Drop a native slot from the pill without removing its click target. */
     fun navigationEntrySuppressed(index: Int): Boolean = false
     /**
@@ -640,6 +652,12 @@ internal interface AppNavigationState {
      * and the selection where it was.
      */
     fun performPillAction(host: View, source: ViewGroup?, kind: Int): Boolean = false
+    /**
+     * A tap landed on the glass circle between the pill and the trailing action.
+     * The host only reports it when that circle exists. Returning false leaves the
+     * tap unhandled.
+     */
+    fun performMiddleAction(host: View, source: ViewGroup?): Boolean = false
     /**
      * A tap landed on the action band *inside* the pill rather than on a navigation slot.
      * The host only reports it when it actually reserved such a band, so a bar without one

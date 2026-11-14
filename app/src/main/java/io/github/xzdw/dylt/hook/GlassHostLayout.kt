@@ -4356,12 +4356,17 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     if (pendingActionBand >= 0 && actionBandAt(event.x) == pendingActionBand) {
 
+                        if (pendingActionBand == 2) {
+                            // The plus between the pill and the right circle.
+                            appNavigationState?.performMiddleAction(this, navigationSource)
+                        } else {
                         // A detached action circle: the app's own key handles it.
                         appNavigationState?.performActionTap(
                             this,
                             navigationSource,
                             pendingActionBand == 0,
                         )
+                        }
 
                     } else if (pendingInlineAction && inlineActionBandAt(event.x)) {
 
@@ -4379,7 +4384,7 @@ internal fun syncOpticalVisibilityCompanions() {
                         0
                     }
                     if (pillKind != 0) {
-                        // A plus or disc cell inside the pill. The selection stays on the page.
+                        // The disc cell inside the pill. The selection stays on the page.
                         appNavigationState?.performPillAction(this, navigationSource, pillKind)
                     } else {
 
@@ -4824,6 +4829,25 @@ internal fun syncOpticalVisibilityCompanions() {
         return (navigationActionLeftButtonPx() + gap).coerceAtMost(width * 0.5f)
     }
 
+    /**
+     * Diameter of the glass circle between the pill and the trailing action.
+     * Zero for publish mode and every other app, so their path stays pill + one circle.
+     */
+    private fun navigationMiddleButtonPx(): Float {
+        if (topBar || !config.showPostButton) return 0f
+        if (navigationActionGapPx() <= 0f) return 0f
+        val fraction = targetAdapter?.navigationMiddleButtonFraction() ?: 0f
+        if (fraction <= 0f) return 0f
+        return height * fraction.coerceIn(0.5f, 1f)
+    }
+
+    /** The middle circle plus the same gap the trailing circle keeps on its left. */
+    private fun navigationMiddleReservePx(): Float {
+        val button = navigationMiddleButtonPx()
+        if (button <= 0f) return 0f
+        return button + navigationActionGapPx()
+    }
+
     /** Left edge of the slot band: the shared 4 dp inset, after a leading action button. */
     private fun navigationSlotBandLeftPx(): Float =
         4f * density + navigationActionLeftReservePx() + inlineActionWidthPx()
@@ -4858,6 +4882,14 @@ internal fun syncOpticalVisibilityCompanions() {
         val left = navigationActionLeftReservePx()
         if (left > 0f && x < left) return 0
         val right = navigationActionReservePx()
+        val middle = navigationMiddleReservePx()
+        // The gap on the pill side belongs to the plus, the same way the trailing
+        // reserve's gap belongs to the right circle. Otherwise that strip selects
+        // the last tab.
+        if (middle > 0f && right > 0f) {
+            val zoneRight = width - right
+            if (x >= zoneRight - middle && x < zoneRight) return 2
+        }
         if (right > 0f && x >= width - right) return 1
         return -1
     }
@@ -4871,6 +4903,7 @@ internal fun syncOpticalVisibilityCompanions() {
      */
     private fun rebuildPanelPath() {
         if (width <= 0 || height <= 0) return
+        if (!topBar) targetAdapter?.syncNavigationChrome(config)
         val gap = navigationActionGapPx()
         val button = navigationActionButtonPx()
         val leftGap = navigationActionLeftGapPx()
@@ -4899,7 +4932,9 @@ internal fun syncOpticalVisibilityCompanions() {
         } else {
             0f
         }
-        val pillRight = (width - button - gap).coerceAtLeast(1f)
+        val middle = navigationMiddleButtonPx()
+        val middleGap = if (middle > 0f) gap else 0f
+        val pillRight = (width - button - gap - middle - middleGap).coerceAtLeast(1f)
         val pillRect = RectF(pillLeft, 0f, pillRight, height.toFloat())
         // setBottomBarSquircle resets the path, so the circles must be appended after it.
         clipPath.setBottomBarSquircle(
@@ -4924,12 +4959,24 @@ internal fun syncOpticalVisibilityCompanions() {
             ),
             Path.Direction.CW,
         )
+        if (middle > 0f) {
+            val middleLeft = width - button - gap - middle
+            clipPath.addOval(
+                RectF(
+                    middleLeft,
+                    (height - middle) / 2f,
+                    middleLeft + middle,
+                    (height + middle) / 2f,
+                ),
+                Path.Direction.CW,
+            )
+        }
     }
 
     private fun tabWidthPx(): Float =
 
         ((width - 8f * density - navigationActionReservePx() - navigationActionLeftReservePx() -
-            inlineActionWidthPx()).coerceAtLeast(1f) /
+            navigationMiddleReservePx() - inlineActionWidthPx()).coerceAtLeast(1f) /
             visualSlotCount().coerceAtLeast(1))
 
 
@@ -6099,9 +6146,8 @@ internal fun syncOpticalVisibilityCompanions() {
             // sizes the panel as the full cluster), which is what makes the capsule fill it.
             old.showPostButton != config.showPostButton ||
 
-            // 右下角按钮 changes which control fills the right-hand circle. The path
-            // itself stays a pill plus that one circle; rebuilding drops a leading
-            // circle left over from an older build.
+            // 右下角按钮 adds the standalone plus between the pill and the right circle
+            // in music and profile mode, and removes it again for the default plus.
             old.bottomSlot != config.bottomSlot ||
 
             // 顶栏两侧按钮: a hidden corner key removes a whole shape from the panel path (the
@@ -9197,7 +9243,7 @@ internal fun drawOuterGlass(canvas: Canvas) {
         // its 遮罩色.
         val leftInset = 4f * density + navigationActionLeftReservePx()
 
-        val rightInset = 4f * density + navigationActionReservePx()
+        val rightInset = 4f * density + navigationActionReservePx() + navigationMiddleReservePx()
 
         // Keeping the backdrop row at the full panel width displaced its left
 

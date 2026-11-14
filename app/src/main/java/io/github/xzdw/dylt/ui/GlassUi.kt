@@ -2451,8 +2451,8 @@ private fun GlassStyleChoice(
 }
 
 /**
- * 右下角按钮: publish stays the default. The other two choices move that control into
- * the leading circle. The music disc is drawn as a copy; it is not taken out of the feed.
+ * 右下角按钮: publish stays the default. Music and profile keep the plus as its own
+ * circle between the pill and the right-hand button. The music disc is a copy.
  */
 @Composable
 private fun GlassBottomSlotChoice(
@@ -2470,7 +2470,7 @@ private fun GlassBottomSlotChoice(
         Text("右下角按钮", color = palette.content, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(4.dp))
         Text(
-            "选中的一项放在底栏右侧圆钮，另外两项作为普通标签留在胶囊里。默认加号，布局与原来一致。音乐转盘只是原控件的代理，不改动右侧操作列；原转盘即使被隐藏，圆钮仍显示封面并转发点击。",
+            "选中的一项放在底栏右侧圆钮。音乐和「我」时，加号单独做成圆钮，放在胶囊和右侧圆钮中间，两边空隙一样。胶囊里音乐是首页/朋友/消息/我，选「我」时是首页/朋友/消息/转盘。默认加号，布局与原来一致。音乐转盘只是原控件的代理，不改动右侧操作列；原转盘即使被隐藏，圆钮仍显示封面并转发点击。",
             color = palette.secondary,
             fontSize = 12.sp,
         )

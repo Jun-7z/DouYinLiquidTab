@@ -278,12 +278,14 @@ internal class DouyinNavigationState(private val context: Context) : AppNavigati
     }
 
     override fun performPillAction(host: View, source: ViewGroup?, kind: Int): Boolean {
+        if (kind != DouyinBottomSlot.PILL_DISC) return false
+        return DouyinBottomSlot.clickDisc()
+    }
+
+    /** The plus between the pill and the right circle. Same target as the publish circle. */
+    override fun performMiddleAction(host: View, source: ViewGroup?): Boolean {
         val row = source ?: return false
-        return when (kind) {
-            DouyinBottomSlot.PILL_PLUS -> clickCell(publishCell(row))
-            DouyinBottomSlot.PILL_DISC -> DouyinBottomSlot.clickDisc()
-            else -> false
-        }
+        return clickCell(publishCell(row))
     }
 
     private fun clickCell(cell: View?): Boolean {

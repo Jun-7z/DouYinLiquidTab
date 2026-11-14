@@ -69,6 +69,8 @@ internal object DouyinAdapter : TargetAdapter {
     override val navigationActionReserveGapDp = 12f
     override val navigationActionLeftGapDp: Float
         get() = DouyinBottomSlot.leftGapDp()
+    override fun syncNavigationChrome(config: GlassConfig) = DouyinBottomSlot.sync(config)
+    override fun navigationMiddleButtonFraction(): Float = DouyinBottomSlot.middleButtonFraction()
     override fun navigationEntrySuppressed(index: Int): Boolean =
         DouyinBottomSlot.suppressMeTab() && index == DouyinBottomSlot.ME_CELL_INDEX
     override fun pillVisualSlotCount(enabledNativeIndices: List<Int>): Int =
@@ -89,7 +91,6 @@ internal object DouyinAdapter : TargetAdapter {
     override fun pillActionKind(visualIndex: Int, enabledNativeIndices: List<Int>): Int {
         val cell = DouyinBottomSlot.pillCells(enabledNativeIndices)?.getOrNull(visualIndex) ?: return 0
         return when (cell) {
-            is DouyinBottomSlot.PillCell.Plus -> DouyinBottomSlot.PILL_PLUS
             is DouyinBottomSlot.PillCell.Disc -> DouyinBottomSlot.PILL_DISC
             else -> 0
         }

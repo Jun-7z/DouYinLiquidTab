@@ -283,13 +283,7 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
 
                 if (entry < 0) {
                     val cell = cells?.getOrNull(position)
-                    if (cell is DouyinBottomSlot.PillCell.Plus) {
-                        if (showIcon) drawPlusGlyph(canvas, centreX, blockTop, iconSize, iconColor)
-                        if (showLabels) {
-                            labelPaint.color = labelColor
-                            drawEntryLabel(canvas, PLUS_LABEL, centreX, textBaseline, slotWidth, density)
-                        }
-                    } else if (cell is DouyinBottomSlot.PillCell.Disc && showIcon) {
+                    if (cell is DouyinBottomSlot.PillCell.Disc && showIcon) {
                         drawDiscButton(canvas, centreX, blockTop + iconSize / 2f, iconSize, iconColor)
                         if (showLabels) {
                             labelPaint.color = labelColor
@@ -383,9 +377,19 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
             }
         }
 
-        // The right-hand circle is the chosen slot. The controls that left it are pill
-        // cells, drawn above, so nothing is painted in a leading circle.
+        // The right-hand circle is the chosen slot. In music and profile mode the plus
+        // is a second circle between the pill and that slot, the same glass the path
+        // already punched out. Nothing is painted in a leading circle.
         if (drawPublish && showPublish) {
+            val middleFraction = DouyinBottomSlot.middleButtonFraction()
+            if (middleFraction > 0f) {
+                val middle = height * middleFraction
+                val middleCentreX = width - buttonSize - gap - middle / 2f
+                drawPublishButton(
+                    canvas, middleCentreX, height / 2f, middle, density,
+                    customPublishIcon(frame), glyphColor,
+                )
+            }
             val centreX = width - buttonSize / 2f
             val centreY = height / 2f
             when (DouyinBottomSlot.mode) {
@@ -405,24 +409,6 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
                 )
             }
         }
-    }
-
-    /** Plus glyph at tab-icon size, for the pill cell that replaces the leading circle. */
-    private fun drawPlusGlyph(
-        canvas: Canvas,
-        centreX: Float,
-        top: Float,
-        iconSize: Float,
-        color: Int,
-    ) {
-        val arm = iconSize * 0.26f
-        val cy = top + iconSize / 2f
-        paint.style = Paint.Style.STROKE
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.strokeWidth = iconSize * 0.075f
-        paint.color = color
-        canvas.drawLine(centreX - arm, cy, centreX + arm, cy, paint)
-        canvas.drawLine(centreX, cy - arm, centreX, cy + arm, paint)
     }
 
     /** Profile glyph, centred in the right-hand circle the way the plus normally is. */
@@ -841,7 +827,6 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
 
         /** Messages entry inside [LABELS]. */
         const val MESSAGE_LABEL_INDEX = 2
-        const val PLUS_LABEL = "发布"
         const val DISC_LABEL = "音乐"
 
         /** Unread badge geometry and colours, taken from the reference bar. */
