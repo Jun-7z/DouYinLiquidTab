@@ -39,9 +39,11 @@ import kotlin.math.roundToInt
  * wrapper `CommentInputFragment.onViewCreated` paints via `setBackgroundResource`) stays
  * a capsule and is itself frosted glass. The full-width strip behind it
  * (`CommentBottomAreaLayout`, `InterceptTouchFrameLayout`, `mExternalInputContainer`)
- * gets the same glass as the sheet. With 输入框悬浮 the list extends under that strip
- * and the strip re-blurs the list every frame. List containers such as
- * `CommentRecyclerView` are cleared so the header and the list share one surface.
+ * gets the same glass as the sheet, unless 输入框悬浮 is on: then that strip and every
+ * ancestor between the capsule and the list lose their background, foreground and
+ * shadow, and only the capsule plus the image / @ / emoji icons stay frosted.
+ * List containers such as `CommentRecyclerView` are cleared so the header and the
+ * list share one surface.
  * These names are present on 41.0.0 and 41.1.0.
  *
  * Glass is installed from the view's own pre-draw (armed in the constructor) so the
@@ -79,6 +81,12 @@ internal object DouyinFeedGlass {
     private var sheetBackdrop: SurfaceBackdrop? = null
     private var pillBackdrop: SurfaceBackdrop? = null
     private var dockBackdrop: SurfaceBackdrop? = null
+    /** Circle glass on the image / @ / emoji buttons while the strip is hidden. */
+    private val iconBackdrops = WeakHashMap<View, SurfaceBackdrop>()
+    private val loggedIcons = WeakHashMap<View, Boolean>()
+    private var loggedIconNone = false
+    /** Paint saved from the strip and its ancestors so the float-off path can put it back. */
+    private val floatPaint = WeakHashMap<View, SavedPaint>()
     private var latestConfig: GlassConfig? = null
     private var latestRoot: WeakReference<ViewGroup>? = null
     private var lastScanAt = 0L
@@ -384,10 +392,12 @@ internal object DouyinFeedGlass {
     }
 
     /**
-     * Capsule glass on the pill, sheet glass on the full-width strip behind it.
-     * Neither view is cleared: 1.7.9 nulled the drawable that drew the capsule.
-     * [commentInputFloat] pulls the strip up over [CommentRecyclerView] so the
-     * list scrolls underneath and the strip's blur is that list, refreshed every frame.
+     * Capsule glass on the pill. With 输入框悬浮 off, the full-width strip behind it
+     * gets the same glass as the sheet. With the switch on, that strip is invisible:
+     * its background, foreground and shadow are cleared, and so is every ancestor
+     * between the capsule and the list. The image / @ / emoji buttons keep a small
+     * circle of the same glass. Layout height is left alone so the list padding still
+     * clears the dock.
      */
     private fun openInputDock(
         field: View,
@@ -422,22 +432,33 @@ internal object DouyinFeedGlass {
             inputRef = WeakReference(pill)
         }
         val strip = dock?.takeIf { it !== pill && it !== sheet }
-        if (strip != null) {
-            clearDockSiblings(strip, pill, sheet)
-            dockBackdrop = bindGlass(
-                existing = dockBackdrop,
-                host = strip,
-                blurPx = blurPx,
-                cornerPx = 0f,
-                bottomCornerPx = 0f,
-                tint = color,
-                outline = false,
-                highlight = config.commentHighlight * 0.6f,
-                live = true,
-            )
+        if (config.commentInputFloat) {
+            // The frosted strip is the lighter band comments show through. Drop it,
+            // and every container between the capsule and the list, before drawing.
+            releaseDockGlass()
+            val scope = strip ?: pill.parent as? View
+            if (scope != null) bindIconCircles(scope, pill, blurPx, color, config)
+            hideFloatStrip(pill, strip, sheet)
         } else {
-            dockBackdrop?.let { restore(it) }
-            dockBackdrop = null
+            releaseIconCircles()
+            restoreFloatPaint()
+            if (strip != null) {
+                clearBetween(pill, strip)
+                clearDockSiblings(strip, pill, sheet)
+                dockBackdrop = bindGlass(
+                    existing = dockBackdrop,
+                    host = strip,
+                    blurPx = blurPx,
+                    cornerPx = 0f,
+                    bottomCornerPx = 0f,
+                    tint = color,
+                    outline = false,
+                    highlight = config.commentHighlight * 0.6f,
+                    live = true,
+                )
+            } else {
+                releaseDockGlass()
+            }
         }
         val floatHost = strip ?: pill.takeIf { it.width >= (sheet?.width ?: it.rootView.width) * 0.9f }
         if (floatHost != null && floatHost !== sheet) applyFloat(floatHost, sheet, config.commentInputFloat)
@@ -450,7 +471,8 @@ internal object DouyinFeedGlass {
                     "${pill.width}x${pill.height} cornerPx=${corner.toInt()} " +
                     "field ${field.javaClass.name} id=${resourceId(field)} " +
                     "dock $dockName id=${strip?.let { resourceId(it) } ?: "none"} " +
-                    "${strip?.width ?: 0}x${strip?.height ?: 0} float=${config.commentInputFloat}",
+                    "${strip?.width ?: 0}x${strip?.height ?: 0} float=${config.commentInputFloat} " +
+                    "strip=${if (config.commentInputFloat) "hidden" else "frost"}",
             )
         }
     }
@@ -488,6 +510,210 @@ internal object DouyinFeedGlass {
         )
         install(host, backdrop)
         return backdrop
+    }
+
+    private fun releaseDockGlass() {
+        dockBackdrop?.let { restore(it) }
+        dockBackdrop = null
+    }
+
+    /**
+     * While the input floats, nothing may paint behind the capsule: not our glass,
+     * not Douyin's drawable, not a divider or an elevation shadow. Ancestors stop at
+     * the sheet, so the panel glass stays. Height and padding are not touched.
+     */
+    private fun hideFloatStrip(pill: View, dock: View?, sheet: View?) {
+        var node = pill.parent as? View
+        var guard = 0
+        while (node != null && guard++ < 10) {
+            if (node === sheet || node.javaClass.simpleName == SHEET_CLASS) break
+            if (insideList(node)) break
+            clearPaint(node, "float-strip")
+            clearFloatSiblings(node, pill, sheet)
+            node = node.parent as? View
+        }
+        if (dock != null && dock !== pill) {
+            clearPaint(dock, "float-strip")
+            clearFloatSiblings(dock, pill, sheet)
+            clearDockPlates(dock, pill)
+        }
+    }
+
+    /** Full-bleed plates, hairlines and shadow siblings of each ancestor. Not the list. */
+    private fun clearFloatSiblings(node: View, pill: View, sheet: View?) {
+        val parent = node.parent as? ViewGroup ?: return
+        if (parent === sheet || parent.javaClass.simpleName == SHEET_CLASS) return
+        val density = node.resources.displayMetrics.density
+        val rootWidth = (sheet?.width ?: node.rootView.width).coerceAtLeast(1)
+        val maxHeight = (320f * density).toInt()
+        for (index in 0 until parent.childCount) {
+            val sibling = parent.getChildAt(index)
+            if (sibling === node || sibling === pill || isUnder(pill, sibling)) continue
+            if (sibling.background is SurfaceBackdrop) continue
+            if (sibling.javaClass.name.contains("Recycler")) continue
+            val name = sibling.javaClass.name
+            val fullBleed = sibling.width >= rootWidth * 0.90f && sibling.height in 1..maxHeight
+            val hairline = sibling.height <= (12f * density) && sibling.width >= rootWidth * 0.72f
+            val shadow = name.contains("Shadow") || name.contains("Divider") || sibling.elevation > 1f
+            if (fullBleed || hairline || shadow) clearPaint(sibling, "float-strip")
+        }
+    }
+
+    /** Childless or full-width fills inside the dock. The capsule and its icons stay. */
+    private fun clearDockPlates(dock: View, pill: View) {
+        val minWidth = dock.width * 0.72f
+        val density = dock.resources.displayMetrics.density
+        var visited = 0
+        val stack = ArrayDeque<View>()
+        stack.add(dock)
+        while (stack.isNotEmpty() && visited++ < 80) {
+            val view = stack.removeLast()
+            val underPill = view === pill || isUnder(view, pill)
+            if (view !== dock && !underPill && view.background !is SurfaceBackdrop) {
+                val wide = view.width >= minWidth
+                val hairline = view.height <= (12f * density) && view.width >= minWidth
+                if (wide || hairline) clearPaint(view, "float-strip")
+            }
+            if (view is ViewGroup && !underPill && visited < 80) {
+                for (index in view.childCount - 1 downTo 0) stack.add(view.getChildAt(index))
+            }
+        }
+    }
+
+    /**
+     * Drop background, foreground and the elevation shadow. A childless plate is also
+     * faded out, in case it paints its colour in `onDraw` rather than as a background.
+     * The first values are kept so turning 输入框悬浮 off can restore them.
+     */
+    private fun clearPaint(view: View, reason: String) {
+        val background = view.background
+        val foreground = view.foreground
+        val animator = view.stateListAnimator
+        val paints = background != null && background !is SurfaceBackdrop ||
+            foreground != null ||
+            view.elevation > 0f ||
+            view.translationZ > 0f ||
+            animator != null
+        val plate = (view !is ViewGroup || view.childCount == 0) && view !is android.widget.TextView &&
+            view !is android.widget.ImageView && view.alpha > 0f && view.background !is SurfaceBackdrop
+        if (!paints && !plate) return
+        if (!floatPaint.containsKey(view)) {
+            floatPaint[view] = SavedPaint(
+                background = if (background is SurfaceBackdrop) null else background,
+                foreground = foreground,
+                elevation = view.elevation,
+                translationZ = view.translationZ,
+                alpha = view.alpha,
+                animator = animator,
+            )
+        }
+        if (background !is SurfaceBackdrop && background != null) view.background = null
+        if (foreground != null) view.foreground = null
+        if (view.elevation != 0f) view.elevation = 0f
+        if (view.translationZ != 0f) view.translationZ = 0f
+        if (animator != null) view.stateListAnimator = null
+        if (plate && view.alpha != 0f) view.alpha = 0f
+        if (clearedViews.put(view, reason) == null) {
+            val saved = floatPaint[view]
+            Xposed.log(
+                "[OfflineGlass][CommentGlass] clear $reason ${view.javaClass.name} " +
+                    "id=${resourceId(view)} ${view.width}x${view.height} " +
+                    "bg=${saved?.background != null} fg=${saved?.foreground != null} " +
+                    "elevation=${saved?.elevation ?: 0f} alpha=${saved?.alpha ?: view.alpha}",
+            )
+        }
+    }
+
+    private fun restoreFloatPaint() {
+        if (floatPaint.isEmpty()) return
+        for ((view, saved) in floatPaint) {
+            if (view.background == null) view.background = saved.background
+            if (view.foreground == null) view.foreground = saved.foreground
+            view.elevation = saved.elevation
+            view.translationZ = saved.translationZ
+            view.alpha = saved.alpha
+            view.stateListAnimator = saved.animator
+        }
+        floatPaint.clear()
+    }
+
+    /** Image / @ / emoji buttons sit on the strip, so they need their own circle once it is gone. */
+    private fun bindIconCircles(scope: View, pill: View, blurPx: Float, color: Int, config: GlassConfig) {
+        val icons = findDockIcons(scope, pill)
+        val keep = HashSet<View>(icons.size)
+        for (icon in icons) {
+            val side = minOf(icon.width, icon.height).toFloat()
+            if (side <= 0f) continue
+            keep.add(icon)
+            val backdrop = bindGlass(
+                existing = iconBackdrops[icon],
+                host = icon,
+                blurPx = blurPx,
+                cornerPx = side / 2f,
+                bottomCornerPx = side / 2f,
+                tint = color,
+                outline = config.commentOutlineEnabled,
+                highlight = config.commentHighlight,
+                live = true,
+            )
+            iconBackdrops[icon] = backdrop
+            if (loggedIcons.put(icon, true) == null) {
+                Xposed.log(
+                    "[OfflineGlass][CommentGlass] icon circle ${icon.javaClass.name} " +
+                        "id=${resourceId(icon)} ${icon.width}x${icon.height}",
+                )
+            }
+        }
+        val stale = iconBackdrops.keys.filter { it !in keep }
+        for (icon in stale) iconBackdrops.remove(icon)?.let { restore(it) }
+        if (icons.isEmpty() && !loggedIconNone) {
+            loggedIconNone = true
+            Xposed.log(
+                "[OfflineGlass][CommentGlass] icon circle none under ${scope.javaClass.name} " +
+                    "id=${resourceId(scope)} ${scope.width}x${scope.height}",
+            )
+        }
+    }
+
+    private fun findDockIcons(scope: View, pill: View): List<View> {
+        val density = scope.resources.displayMetrics.density
+        val min = (16f * density).toInt()
+        val max = (56f * density).toInt()
+        val found = ArrayList<View>(4)
+        var visited = 0
+        val stack = ArrayDeque<View>()
+        stack.add(scope)
+        while (stack.isNotEmpty() && visited++ < 120) {
+            val view = stack.removeLast()
+            if (view !== scope && view !== pill && !isUnder(view, pill) && !insideList(view) &&
+                view.isShown && view.width in min..max && view.height in min..max &&
+                view.width <= view.height * 1.6f && view.height <= view.width * 1.6f &&
+                isIconLike(view)
+            ) {
+                found.add(view)
+            }
+            if (view is ViewGroup && view !== pill && !isUnder(view, pill) && visited < 120) {
+                for (index in view.childCount - 1 downTo 0) stack.add(view.getChildAt(index))
+            }
+        }
+        return found
+    }
+
+    private fun isIconLike(view: View): Boolean {
+        if (view is android.widget.ImageView) return true
+        val name = view.javaClass.name
+        if (name.contains("Image") || name.contains("Icon") || name.contains("Emoji") || name.contains("Emoticon")) {
+            return true
+        }
+        val id = resourceId(view)
+        return id.contains("emoji") || id.contains("emoticon") || id.contains("image") ||
+            id.contains("pic") || id.contains("icon") || id.contains("mention") || id.contains("at")
+    }
+
+    private fun releaseIconCircles() {
+        if (iconBackdrops.isEmpty()) return
+        for (backdrop in iconBackdrops.values) restore(backdrop)
+        iconBackdrops.clear()
     }
 
     /** Opaque wrappers between the capsule and the strip would hide the strip's glass. */
@@ -944,12 +1170,15 @@ internal object DouyinFeedGlass {
 
     private fun releaseInput() {
         restoreFloat()
+        releaseIconCircles()
+        restoreFloatPaint()
         pillBackdrop?.let { restore(it) }
         pillBackdrop = null
-        dockBackdrop?.let { restore(it) }
-        dockBackdrop = null
+        releaseDockGlass()
         inputRef = null
         loggedInput = false
+        loggedIconNone = false
+        loggedIcons.clear()
     }
 
     private fun restore(backdrop: SurfaceBackdrop) {
@@ -979,6 +1208,16 @@ internal object DouyinFeedGlass {
         val a = (alpha.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
         return (rgb and 0x00FFFFFF) or (a shl 24)
     }
+
+    /** Drawables and shadow values taken off the floating strip, so they can be put back. */
+    private class SavedPaint(
+        val background: Drawable?,
+        val foreground: Drawable?,
+        val elevation: Float,
+        val translationZ: Float,
+        val alpha: Float,
+        val animator: android.animation.StateListAnimator?,
+    )
 }
 
 /**

@@ -1950,7 +1950,8 @@ private fun GlassSettingsSubpage(
                     ) { actions.setGlassConfig(config.copy(commentInputGlass = it)) }
                     GlassSwitchRow(
                         "输入框悬浮",
-                        if (config.commentInputFloat) "评论列表从磨砂输入条下面滑过" else "输入条单独占一行，列表停在它上方",
+                        if (config.commentInputFloat) "底条消失，只留胶囊，评论从胶囊下面滑过"
+                        else "输入条单独占一行，底条保持磨砂",
                         config.commentInputFloat,
                         backdrop,
                         palette,
