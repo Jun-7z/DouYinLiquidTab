@@ -2470,7 +2470,7 @@ private fun GlassBottomSlotChoice(
         Text("右下角按钮", color = palette.content, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(4.dp))
         Text(
-            "选中的放在底栏右侧圆钮，加号不在右侧时改到左侧圆钮。音乐转盘是转盘的点击代理，原控件仍留在视频里。默认加号。",
+            "选中的一项放在底栏右侧圆钮，另外两项作为普通标签留在胶囊里。默认加号，布局与原来一致。音乐转盘只是原控件的代理，不改动右侧操作列；原转盘即使被隐藏，圆钮仍显示封面并转发点击。",
             color = palette.secondary,
             fontSize = 12.sp,
         )

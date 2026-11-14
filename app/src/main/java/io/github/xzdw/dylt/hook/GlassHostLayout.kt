@@ -1511,6 +1511,9 @@ internal var selectedIndex = 0
 
     private var pendingTapIndex = -1
 
+    /** Visual slot the current tap started on, before it is mapped back to a native page. */
+    private var pendingVisualIndex = -1
+
     /** Detached action button the current gesture started on: 0 leading, 1 trailing, -1 none. */
     private var pendingActionBand = -1
 
@@ -4160,17 +4163,16 @@ internal fun syncOpticalVisibilityCompanions() {
                     pendingInlineAction
                 ) {
 
+                    pendingVisualIndex = -1
                     -1
 
                 } else {
 
-                    navigationIndexForVisualIndex(
-
-                        ((event.x - navigationSlotBandLeftPx()) / slotWidth).toInt()
-
-                            .coerceIn(0, visualSlots - 1),
-
-                    ).takeUnless(::isNavigationEntryDisabled) ?: -1
+                    val visual = ((event.x - navigationSlotBandLeftPx()) / slotWidth).toInt()
+                        .coerceIn(0, visualSlots - 1)
+                    pendingVisualIndex = visual
+                    navigationIndexForVisualIndex(visual)
+                        .takeUnless { it < 0 || isNavigationEntryDisabled(it) } ?: -1
 
                 }
 
@@ -4294,11 +4296,25 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     )
 
+                    // Releasing on a non-page cell (the plus, the disc) passes through to the
+                    // nearest real tab. The cell itself only fires on a tap, not a drag.
+                    val passed = if (rawTarget < 0) {
+                        targetAdapter?.nearestSelectableVisual(dragTarget, enabledNavigationIndices())
+                            ?.let { navigationIndexForVisualIndex(it) }
+                            ?.takeIf { it >= 0 }
+                    } else {
+                        null
+                    }
+
                     val actionTarget = event.actionMasked == MotionEvent.ACTION_UP &&
 
-                        rawTarget in nonSelectableIndices && !isNavigationEntryDisabled(rawTarget)
+                        rawTarget >= 0 && rawTarget in nonSelectableIndices && !isNavigationEntryDisabled(rawTarget)
 
-                    val target = if (actionTarget) {
+                    val target = if (rawTarget < 0) {
+
+                        passed ?: selectedIndex
+
+                    } else if (actionTarget) {
 
                         selectedIndex
 
@@ -4312,6 +4328,8 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     }
 
+                    val previousSelection = selectedIndex
+
                     selectedIndex = target
 
                     dragTarget = visualPositionForNavigationIndex(target)
@@ -4322,9 +4340,13 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     panelOffsetSpring.animateTo(0f)
 
-                    if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    if (event.actionMasked == MotionEvent.ACTION_UP && rawTarget >= 0) {
 
                         performNavigationSelection(if (actionTarget) rawTarget else target)
+
+                    } else if (event.actionMasked == MotionEvent.ACTION_UP && target != previousSelection) {
+
+                        performNavigationSelection(target)
 
                     }
 
@@ -4349,13 +4371,19 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     } else {
 
-                    val upIndex = navigationIndexForVisualIndex(
+                    val visual = ((event.x - navigationSlotBandLeftPx()) / slotWidth).toInt()
+                        .coerceIn(0, visualSlots - 1)
+                    val pillKind = if (!topBar && pendingVisualIndex == visual) {
+                        targetAdapter?.pillActionKind(visual, enabledNavigationIndices()) ?: 0
+                    } else {
+                        0
+                    }
+                    if (pillKind != 0) {
+                        // A plus or disc cell inside the pill. The selection stays on the page.
+                        appNavigationState?.performPillAction(this, navigationSource, pillKind)
+                    } else {
 
-                        ((event.x - navigationSlotBandLeftPx()) / slotWidth).toInt()
-
-                            .coerceIn(0, visualSlots - 1),
-
-                    )
+                    val upIndex = navigationIndexForVisualIndex(visual)
 
                     val tapped = pendingTapIndex.takeIf { it == upIndex } ?: -1
 
@@ -4385,11 +4413,15 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     }
 
+                    }
+
                 }
 
                 indicatorGestureActive = false
 
                 pendingTapIndex = -1
+
+                pendingVisualIndex = -1
 
                 pendingActionBand = -1
 
@@ -6067,7 +6099,9 @@ internal fun syncOpticalVisibilityCompanions() {
             // sizes the panel as the full cluster), which is what makes the capsule fill it.
             old.showPostButton != config.showPostButton ||
 
-            // 右下角按钮 opens a leading circle when the plus leaves the right-hand slot.
+            // 右下角按钮 changes which control fills the right-hand circle. The path
+            // itself stays a pill plus that one circle; rebuilding drops a leading
+            // circle left over from an older build.
             old.bottomSlot != config.bottomSlot ||
 
             // 顶栏两侧按钮: a hidden corner key removes a whole shape from the panel path (the
@@ -6442,9 +6476,18 @@ internal fun syncOpticalVisibilityCompanions() {
             drawAdapterNavigation(
                 canvas,
                 extraScale = scaledContent,
-                selectedSlot = navigationIndexForVisualIndex(
-                    indicatorPosition.roundToInt().coerceIn(0, visualSlotCount() - 1),
-                ),
+                selectedSlot = if (!topBar && targetAdapter?.suppressSelectionCapsule(
+                        selectedIndex, enabledNavigationIndices(),
+                    ) == true
+                ) {
+                    // The page is the side circle. The indicator is still sitting on the
+                    // last pill tab; reporting that would accent the wrong label.
+                    selectedIndex
+                } else {
+                    navigationIndexForVisualIndex(
+                        indicatorPosition.roundToInt().coerceIn(0, visualSlotCount() - 1),
+                    )
+                },
             )
 
         } else if (context.packageName == FILE_MANAGER_PACKAGE && fmStaticIconsPopulated) {
@@ -7230,7 +7273,12 @@ internal fun syncOpticalVisibilityCompanions() {
 
 
 
-    private fun visualSlotCount(): Int = enabledNavigationIndices().size.coerceAtLeast(1)
+    private fun visualSlotCount(): Int {
+        val enabled = enabledNavigationIndices()
+        val native = enabled.size.coerceAtLeast(1)
+        if (topBar) return native
+        return targetAdapter?.pillVisualSlotCount(enabled)?.takeIf { it > 0 } ?: native
+    }
 
 
 
@@ -7275,6 +7323,16 @@ internal fun syncOpticalVisibilityCompanions() {
             if (targetAdapter?.reverseVisualSlotOrder == true) it.asReversed() else it
         }
 
+        if (!topBar) {
+            val override = targetAdapter?.visualPositionOverride(index, enabled)
+            if (override != null) {
+                // NaN: the page is the side circle. Leave the capsule where it is; drawing
+                // hides it so it does not slide onto 首页.
+                if (!override.isNaN()) return override
+                return indicatorPosition
+            }
+        }
+
         val position = enabled.indexOf(index).takeIf { it >= 0 } ?: 0
 
         return position.toFloat()
@@ -7287,6 +7345,11 @@ internal fun syncOpticalVisibilityCompanions() {
 
         val enabled = enabledNavigationIndices().let {
             if (targetAdapter?.reverseVisualSlotOrder == true) it.asReversed() else it
+        }
+
+        if (!topBar) {
+            val override = targetAdapter?.nativeIndexForVisualOverride(visualIndex, enabled)
+            if (override != null) return override
         }
 
         return enabled.getOrElse(visualIndex.coerceIn(0, enabled.lastIndex.coerceAtLeast(0))) {
@@ -8472,6 +8535,15 @@ internal fun drawOuterGlass(canvas: Canvas) {
     private fun drawSelection(canvas: Canvas, dark: Boolean) {
 
         selectionPathValid = false
+
+        // The selected page lives on the side circle (profile, while 我 is that circle).
+        // Parking the capsule on the first pill cell would light up 首页.
+        if (!topBar && targetAdapter?.suppressSelectionCapsule(
+                selectedIndex, enabledNavigationIndices(),
+            ) == true
+        ) {
+            return
+        }
 
         // Selection bars (file manager action mode) render the liquid glass
 

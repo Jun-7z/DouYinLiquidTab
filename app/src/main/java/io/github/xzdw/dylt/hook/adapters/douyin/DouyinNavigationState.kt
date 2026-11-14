@@ -268,14 +268,21 @@ internal class DouyinNavigationState(private val context: Context) : AppNavigati
      */
     override fun performActionTap(host: View, source: ViewGroup?, leading: Boolean): Boolean {
         val row = source ?: return false
-        // The leading circle is the plus after it has left the right-hand slot.
-        if (leading || DouyinBottomSlot.mode == DouyinBottomSlot.PUBLISH) {
-            return clickCell(publishCell(row))
-        }
+        // There is no leading circle. A stray leading hit must not open publish.
+        if (leading) return false
         return when (DouyinBottomSlot.mode) {
             DouyinBottomSlot.MUSIC -> DouyinBottomSlot.clickDisc()
             DouyinBottomSlot.ME -> clickCell(row.getChildAt(DouyinBottomSlot.ME_CELL_INDEX))
             else -> clickCell(publishCell(row))
+        }
+    }
+
+    override fun performPillAction(host: View, source: ViewGroup?, kind: Int): Boolean {
+        val row = source ?: return false
+        return when (kind) {
+            DouyinBottomSlot.PILL_PLUS -> clickCell(publishCell(row))
+            DouyinBottomSlot.PILL_DISC -> DouyinBottomSlot.clickDisc()
+            else -> false
         }
     }
 

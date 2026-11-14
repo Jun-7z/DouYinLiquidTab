@@ -159,9 +159,18 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
         // `enabledIndices` — so filter the label table through it and compact: a hidden entry
         // leaves no gap, and the remaining labels share the pill on exactly the band the
         // host's own capsule uses (tabWidthPx divides by the same count).
+        //
+        // Music and profile modes insert the leftover controls into that same band. Publish
+        // mode leaves [cells] null and keeps the formula below, so the default bar cannot drift.
+        val cells = DouyinBottomSlot.pillCells(frame.enabledIndices)
         val entries = NATIVE_SLOTS.indices.filter { NATIVE_SLOTS[it] in frame.enabledIndices }
-        val entryCount = entries.size.coerceAtLeast(1)
-        val slotWidth = ((width - 2f * sidePadding - buttonSize - gap).coerceAtLeast(1f)) / entryCount
+        val entryCount = (if (cells != null) cells.size else entries.size).coerceAtLeast(1)
+        val slotWidth = if (cells != null && frame.slotWidth > 1f) {
+            frame.slotWidth
+        } else {
+            ((width - 2f * sidePadding - buttonSize - gap).coerceAtLeast(1f)) / entryCount
+        }
+        val bandLeft = if (cells != null) sidePadding + frame.leftActionReservePx else sidePadding
         // 底栏菜单文字: the user's names replace the built-in ones entry by entry, so a blank or
         // missing line keeps the app's own name (see the settings page's placeholder).
         val labels = Array(LABELS.size) { entry ->
@@ -246,9 +255,20 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
         val unselectedLabelColor =
             if (frame.darkGlass) unselectedIconColor else LABEL_UNSELECTED_COLOR_LIGHT
 
-        for ((position, entry) in entries.withIndex()) {
-            val centreX = sidePadding + (position + 0.5f) * slotWidth
-            val selected = position == visualSelected
+        val count = if (cells != null) cells.size else entries.size
+        for (position in 0 until count) {
+            val entry = if (cells != null) {
+                (cells[position] as? DouyinBottomSlot.PillCell.Tab)?.labelIndex ?: -1
+            } else {
+                entries[position]
+            }
+            val centreX = bandLeft + (position + 0.5f) * slotWidth
+            val selected = if (cells != null) {
+                val cell = cells[position]
+                cell is DouyinBottomSlot.PillCell.Tab && cell.nativeIndex == frame.selectedIndex
+            } else {
+                position == visualSelected
+            }
             // One animated scale per slot, mirroring the settings bar's per-tab graphicsLayer.
             // The outgoing tab eases down while the incoming one eases up; no slot boundary
             // snaps the content in a single frame.
@@ -260,6 +280,28 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
                 val accented = accentEveryEntry || (discreteAccent && selected)
                 val iconColor = if (accented) selectedIconColor else unselectedIconColor
                 val labelColor = if (accented) selectedLabelColor else unselectedLabelColor
+
+                if (entry < 0) {
+                    val cell = cells?.getOrNull(position)
+                    if (cell is DouyinBottomSlot.PillCell.Plus) {
+                        if (showIcon) drawPlusGlyph(canvas, centreX, blockTop, iconSize, iconColor)
+                        if (showLabels) {
+                            labelPaint.color = labelColor
+                            drawEntryLabel(canvas, PLUS_LABEL, centreX, textBaseline, slotWidth, density)
+                        }
+                    } else if (cell is DouyinBottomSlot.PillCell.Disc && showIcon) {
+                        drawDiscButton(canvas, centreX, blockTop + iconSize / 2f, iconSize, iconColor)
+                        if (showLabels) {
+                            labelPaint.color = labelColor
+                            drawEntryLabel(canvas, DISC_LABEL, centreX, textBaseline, slotWidth, density)
+                        }
+                    } else if (cell is DouyinBottomSlot.PillCell.Disc && showLabels) {
+                        labelPaint.color = labelColor
+                        drawEntryLabel(canvas, DISC_LABEL, centreX, textBaseline, slotWidth, density)
+                    }
+                    if (save >= 0) canvas.restoreToCount(save)
+                    return
+                }
 
                 if (showIcon) {
                     // The glyphs share one keyline (body centred in the 24-unit box), so the box itself
@@ -341,25 +383,46 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
             }
         }
 
-        // The right-hand circle is the chosen slot. The plus, once it leaves that circle,
-        // is the leading circle. Neither belongs to the selection ink.
+        // The right-hand circle is the chosen slot. The controls that left it are pill
+        // cells, drawn above, so nothing is painted in a leading circle.
         if (drawPublish && showPublish) {
             val centreX = width - buttonSize / 2f
             val centreY = height / 2f
             when (DouyinBottomSlot.mode) {
                 DouyinBottomSlot.MUSIC -> drawDiscButton(canvas, centreX, centreY, buttonSize, glyphColor)
-                DouyinBottomSlot.ME -> drawMeButton(canvas, centreX, centreY, buttonSize, glyphColor)
+                DouyinBottomSlot.ME -> {
+                    val onProfile = frame.selectedIndex == DouyinBottomSlot.ME_CELL_INDEX
+                    val meColor = if (onProfile) {
+                        if (frame.darkGlass) withAlpha(TAB_SELECTED_ICON_DARK, LABEL_SELECTED_ALPHA)
+                        else TAB_SELECTED_ICON_LIGHT
+                    } else {
+                        glyphColor
+                    }
+                    drawMeButton(canvas, centreX, centreY, buttonSize, meColor)
+                }
                 else -> drawPublishButton(
                     canvas, centreX, centreY, buttonSize, density, customPublishIcon(frame), glyphColor,
                 )
             }
         }
-        if (drawPublish && frame.leftActionReservePx > 0f) {
-            val leftSize = height.toFloat()
-            drawPublishButton(
-                canvas, leftSize / 2f, height / 2f, leftSize, density, customPublishIcon(frame), glyphColor,
-            )
-        }
+    }
+
+    /** Plus glyph at tab-icon size, for the pill cell that replaces the leading circle. */
+    private fun drawPlusGlyph(
+        canvas: Canvas,
+        centreX: Float,
+        top: Float,
+        iconSize: Float,
+        color: Int,
+    ) {
+        val arm = iconSize * 0.26f
+        val cy = top + iconSize / 2f
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = iconSize * 0.075f
+        paint.color = color
+        canvas.drawLine(centreX - arm, cy, centreX + arm, cy, paint)
+        canvas.drawLine(centreX, cy - arm, centreX, cy + arm, paint)
     }
 
     /** Profile glyph, centred in the right-hand circle the way the plus normally is. */
@@ -778,6 +841,8 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
 
         /** Messages entry inside [LABELS]. */
         const val MESSAGE_LABEL_INDEX = 2
+        const val PLUS_LABEL = "发布"
+        const val DISC_LABEL = "音乐"
 
         /** Unread badge geometry and colours, taken from the reference bar. */
         const val BADGE_HEIGHT_DP = 15f
