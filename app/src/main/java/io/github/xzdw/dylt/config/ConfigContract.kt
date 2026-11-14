@@ -119,6 +119,53 @@ object ConfigContract {
      * Empty keeps the built-in glyph.
      */
     const val KEY_PUBLISH_ICON = "publish_icon"
+
+    /**
+     * 右侧操作列：图标本身的液态玻璃（不在按钮背后铺底）。默认关闭。
+     * 旧的样式 / 圆角 / 内边距 / 垂直偏移键不再读取，留在这里避免外部拼错名字。
+     */
+    const val KEY_ACTION_GLASS = "action_glass"
+    const val KEY_ACTION_GLASS_STYLE = "action_glass_style"
+    const val KEY_ACTION_BLUR = "action_blur"
+    const val KEY_ACTION_CORNER = "action_corner"
+    const val KEY_ACTION_TINT = "action_tint"
+    const val KEY_ACTION_TINT_MODE = "action_tint_mode"
+    const val KEY_ACTION_OUTLINE = "action_outline"
+    const val KEY_ACTION_OUTLINE_WIDTH = "action_outline_width"
+    const val KEY_ACTION_HIGHLIGHT = "action_highlight"
+    const val KEY_ACTION_LIKED_TINT = "action_liked_tint"
+    const val KEY_ACTION_PADDING = "action_padding"
+    const val KEY_ACTION_SCALE = "action_scale"
+    const val KEY_ACTION_OFFSET_Y = "action_offset_y"
+
+    /** 评论区磨砂玻璃。默认关闭，输入栏跟随面板。 */
+    const val KEY_COMMENT_GLASS = "comment_glass"
+    const val KEY_COMMENT_BLUR = "comment_blur"
+    const val KEY_COMMENT_TINT = "comment_tint"
+    const val KEY_COMMENT_LIGHT = "comment_light"
+    const val KEY_COMMENT_DARK = "comment_dark"
+    const val KEY_COMMENT_CORNER = "comment_corner"
+    const val KEY_COMMENT_OUTLINE = "comment_outline"
+    const val KEY_COMMENT_HIGHLIGHT = "comment_highlight"
+    const val KEY_COMMENT_INPUT = "comment_input"
+    /** 输入框不透明度: capsule and icon-circle fill, independent of the sheet. Default 72%. */
+    const val KEY_COMMENT_INPUT_TINT = "comment_input_tint"
+
+    /**
+     * Legacy 1.7.13–1.7.15 choice: "publish", "music", or "me". Read once to migrate into
+     * [KEY_SHOW_RIGHT_SLOT]. No longer written.
+     */
+    const val KEY_BOTTOM_SLOT = "bottom_slot"
+
+    /** Show the rightmost circle. Default off. What it draws is [KEY_RIGHT_SLOT_TYPE]. */
+    const val KEY_SHOW_RIGHT_SLOT = "show_right_slot"
+
+    /** Content of the rightmost circle. Currently only "music". */
+    const val KEY_RIGHT_SLOT_TYPE = "right_slot_type"
+
+    /** Hide the 拍同款 bubble drawn over the music disc. Default on. The disc stays clickable. */
+    const val KEY_HIDE_SHOOT_SAME = "hide_shoot_same"
+
     const val KEY_SYSTEM_DARK = "system_dark"
     const val KEY_MI_MARKET_TAB_ENABLED = "mi_market_tab_enabled"
 }

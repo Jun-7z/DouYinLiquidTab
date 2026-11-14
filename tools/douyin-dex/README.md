@@ -68,16 +68,24 @@ Add to the candidate list in DouyinPlayerTextureHooks.kt, newest first:
     listOf("X.0GO1", ...)
 ```
 
-Then edit `DouyinPlayerTextureHooks.install()`:
+The module no longer needs that name pasted into a table. `DouyinFeedOutputResolver`
+reads the installed APK at hook time, finds the class that declares the anchor fields,
+and takes its `(ViewGroup, boolean)` method that returns the class itself. The names
+printed here are only for checking a build by hand.
 
-```kotlin
-val factory = listOf("X.0GO1", "X.1KBI", "X.0wMt").firstNotNullOfOrNull { name -> ... }
-```
+Checked packages:
 
-The lookup there resolves **by capability**, not by name: a candidate is only accepted if
-it really declares `LJIILIIL(ViewGroup, boolean)`. That matters because obfuscated names
-are *recycled* — in the 2026-10-17 build `X.1KBI` still existed, but as an unrelated class,
-which is exactly how the previous version got misled.
+| Build | versionCode | update_version_code | Factory | Feed scope method |
+|---|---|---|---|---|
+| 40.6.0 | | | `X.0wMt` | `LJJIJIIJIL` |
+| 40.7.0 | | | `X.1KBI` | `LJJIJIIJIL` |
+| 2026-10-17 update | | | `X.0GO1` | `LJJIJIIJIL` |
+| 41.0.0 | 410000 | 41000100 | `X.1OKa` | `LJJIJIIJIL` |
+| 41.1.0 official | 410101 | 41109900 | `X.1HiJ` | `LJJIJIIJI` |
+
+On 41.0 and 41.1, `LJJI` is `()V`. The hook only forces zero-argument boolean methods,
+so that void method is left alone. `X.0GO1` / `X.1KBI` / `X.0wMt` still exist on these
+packages as unrelated classes; a name-only lookup would pick the wrong one.
 
 `dexlib.py` can also be used directly for other lookups:
 
@@ -91,7 +99,7 @@ python dexlib.py <dex> sig     <substr>   # methods whose signature contains sub
 
 ## Reading the result
 
-- **`factory : ... OK`** — this is the class. Add it to the candidate list and rebuild.
+- **`factory : ... OK`** — this is the class. The runtime resolver finds it from the anchor fields; the name is for checking the build by hand.
 - **`factory : !! ... NOT found on this class`** — the anchors and the factory have been
   split across two classes. Douyin restructured the player; find the class that declares
   `LJIILIIL(ViewGroup, boolean)` returning its own type.

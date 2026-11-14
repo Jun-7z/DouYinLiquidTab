@@ -90,6 +90,47 @@ internal interface TargetAdapter {
      */
     val navigationActionReserveGapDp: Float get() = 0f
     /**
+     * Gap in dp before the pill for a leading circular action. Zero keeps the capsule
+     * flush with the host's left edge. The bottom bar reads this live, so a settings
+     * change can open the circle without reinstalling the host.
+     */
+    val navigationActionLeftGapDp: Float get() = 0f
+    /**
+     * Apply a config before the host rebuilds its panel path. Default is a no-op.
+     * Douyin uses it so the standalone plus circle is in the path on the same frame
+     * the slot setting changes.
+     */
+    fun syncNavigationChrome(config: GlassConfig) = Unit
+    /**
+     * A second trailing circle, the same size as the publish circle, drawn on its
+     * outer side. False keeps every other bar on pill-plus-one-circle.
+     */
+    fun navigationRightSlotCircle(): Boolean = false
+    /** Drop a native slot from the pill without removing its click target. */
+    fun navigationEntrySuppressed(index: Int): Boolean = false
+    /**
+     * Visual slots in the pill when an app inserts non-page cells between its tabs.
+     * The default is the enabled native count, which keeps every other bar unchanged.
+     */
+    fun pillVisualSlotCount(enabledNativeIndices: List<Int>): Int =
+        enabledNativeIndices.size.coerceAtLeast(1)
+    /**
+     * Capsule position for a native page, or null to keep the shared mapping.
+     * NaN means the page is not in the pill (its selection lives on the side circle).
+     */
+    fun visualPositionOverride(nativeIndex: Int, enabledNativeIndices: List<Int>): Float? = null
+    /**
+     * Native page for a visual slot, or null to keep the shared mapping.
+     * -1 is a non-page cell: a tap must not move the selection onto it.
+     */
+    fun nativeIndexForVisualOverride(visualIndex: Int, enabledNativeIndices: List<Int>): Int? = null
+    /** 0 none, or an app-defined action kind for a non-page pill cell. */
+    fun pillActionKind(visualIndex: Int, enabledNativeIndices: List<Int>): Int = 0
+    /** Visual index of the nearest real tab, used when a drag ends on a non-page cell. */
+    fun nearestSelectableVisual(visualFloat: Float, enabledNativeIndices: List<Int>): Int? = null
+    /** Hide the in-pill capsule when the selected page is not one of the pill's tabs. */
+    fun suppressSelectionCapsule(nativeIndex: Int, enabledNativeIndices: List<Int>): Boolean = false
+    /**
      * Opt-in for a second glass host pinned to the top edge of the same content frame.
      * It is a literal copy of the bottom host — its own capture, blur, refraction and
      * panel path — so the installer only has to place it. Off by default.
@@ -604,6 +645,18 @@ internal interface AppNavigationState {
      * without one never sees this call. Returning false leaves the tap unhandled.
      */
     fun performActionTap(host: View, source: ViewGroup?, leading: Boolean): Boolean = false
+    /**
+     * A tap landed on a non-page cell inside the pill. [kind] is whatever
+     * [TargetAdapter.pillActionKind] reported. Returning false leaves the tap unhandled
+     * and the selection where it was.
+     */
+    fun performPillAction(host: View, source: ViewGroup?, kind: Int): Boolean = false
+    /**
+     * A tap landed on the glass circle between the pill and the trailing action.
+     * The host only reports it when that circle exists. Returning false leaves the
+     * tap unhandled.
+     */
+    fun performMiddleAction(host: View, source: ViewGroup?): Boolean = false
     /**
      * A tap landed on the action band *inside* the pill rather than on a navigation slot.
      * The host only reports it when it actually reserved such a band, so a bar without one

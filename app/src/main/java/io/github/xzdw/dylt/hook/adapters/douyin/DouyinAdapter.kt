@@ -14,8 +14,10 @@ import io.github.xzdw.dylt.targets.TargetSpec
 
 /** Douyin 40.3.0: only root_view is an authoritative five-cell navigation row. */
 internal object DouyinAdapter : TargetAdapter {
-    override fun installHooks(context: HookLoadContext, spec: TargetSpec) =
+    override fun installHooks(context: HookLoadContext, spec: TargetSpec) {
         DouyinPlayerTextureHooks.install(context)
+        DouyinBottomSlot.installHooks()
+    }
     override val key = "douyin"
     override val allowRenderNodeRefresh = true
     override val ownsNavigationFinding = true
@@ -67,6 +69,8 @@ internal object DouyinAdapter : TargetAdapter {
      * 12dp group gap the reference bottom bar uses between its capsule and its button.
      */
     override val navigationActionReserveGapDp = 12f
+    override fun syncNavigationChrome(config: GlassConfig) = DouyinBottomSlot.sync(config)
+    override fun navigationRightSlotCircle(): Boolean = DouyinBottomSlot.showRight
     /**
      * The module renders a second glass host at the top edge of the same content frame:
      * a literal copy of the bottom bar's host. Its content is Douyin's own title-bar tab
@@ -125,9 +129,9 @@ internal object DouyinAdapter : TargetAdapter {
      * medium labels. The 4dp inner padding is already the host default, so the
      * selection capsule comes out 42dp tall, again matching the reference.
      *
-     * Dark mode mirrors the light container alpha so the 玻璃底色透明度 slider spans the
-     * same alpha range in both themes. The user's multiplier is applied after this
-     * (see `GlassHostLayout.packageConfig`), so it scales 0.40 as well.
+     * Dark mode mirrors the light container alpha so the 玻璃底色透明度 slider (0–100%)
+     * spans the same alpha range in both themes. The user's multiplier is applied after
+     * this (see `GlassHostLayout.packageConfig`), so it scales 0.40 as well.
      *
      * Bar height and label size are *not* touched here: 50dp / 13sp are the shared
      * defaults now. They used to be forced from this adapter, which silently discarded

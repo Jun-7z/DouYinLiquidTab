@@ -149,6 +149,54 @@ data class GlassConfig(
      * built-in "+" glyph. Downscaled in the settings UI so the stored string stays small.
      */
     val publishIcon: String = "",
+    /**
+     * 右侧操作列: the like / comment / collect / share glyphs (and the avatar ring and
+     * music disc) are themselves liquid glass. Nothing is painted behind the buttons.
+     * Off leaves Douyin's own icons untouched. The knobs are this material's own;
+     * they do not move the shared bottom-bar sliders.
+     *
+     * [actionTintMode] is [ACTION_TINT_WHITE] or [ACTION_TINT_AUTO]. [actionLikedTint]
+     * forces the digg heart to [LIKED_RED] while the video is liked, so a white glass
+     * heart does not hide the liked state.
+     */
+    val actionGlassEnabled: Boolean = false,
+    val actionBlurRadius: Float = 16f,
+    val actionTintAlpha: Float = 0.22f,
+    val actionTintMode: Int = ACTION_TINT_WHITE,
+    val actionOutlineEnabled: Boolean = true,
+    val actionOutlineWidthDp: Float = 1.2f,
+    val actionHighlight: Float = 0.70f,
+    val actionLikedTint: Boolean = true,
+    val actionScale: Float = 1f,
+    /**
+     * 评论区: the comment sheet's own background becomes frosted glass over the video.
+     * The fill stays opaque enough that comment text remains readable. Off restores
+     * Douyin's sheet.
+     */
+    val commentGlassEnabled: Boolean = false,
+    val commentBlurRadius: Float = 20f,
+    val commentTintAlpha: Float = 0.72f,
+    val commentLightTint: Int = DEFAULT_COMMENT_LIGHT,
+    val commentDarkTint: Int = DEFAULT_COMMENT_DARK,
+    val commentCornerRadiusDp: Float = 18f,
+    val commentOutlineEnabled: Boolean = true,
+    val commentHighlight: Float = 0.35f,
+    val commentInputGlass: Boolean = true,
+    /**
+     * 输入框不透明度: fill of the input capsule and the icon-button circles.
+     * Independent of [commentTintAlpha]. 0.72 matches the 1.7.11 look, which used the
+     * sheet's default fill for the capsule.
+     */
+    val commentInputTintAlpha: Float = 0.72f,
+    /**
+     * Rightmost circle, drawn to the right of the original plus (or in its place when
+     * the plus is hidden). Off by default. [rightSlotType] says what it shows.
+     */
+    val showRightSlot: Boolean = false,
+    /** Content of [showRightSlot]. [RIGHT_SLOT_MUSIC] is the only type so far. */
+    val rightSlotType: String = RIGHT_SLOT_MUSIC,
+    /** 隐藏拍同款. The overlay on the music disc goes away; the disc still receives clicks. */
+    val hideShootSame: Boolean = true,
 ) {
     /** 仅文字: the bar draws labels alone, vertically centred where the glyph used to sit. */
     val textOnly: Boolean get() = bottomBarStyle == BOTTOM_BAR_STYLE_TEXT_ONLY
@@ -170,11 +218,11 @@ data class GlassConfig(
             BOTTOM_MARGIN_OFFSET_MAX_DP,
         ),
         lightAlpha = 0.40f,
-        // Dark mirrors light so the 玻璃底色透明度 slider spans the same alpha range
-        // (0.10 .. 0.80) in both themes.
+        // Dark mirrors light. 玻璃底色透明度 is 0–100% of this 0.40 base, so the
+        // scale runs 0 .. 2.5 (0% clears the fill, 40% is the shipped look, 100% is solid).
         darkAlpha = 0.40f,
         darkBarHighlightStrength = darkBarHighlightStrength.coerceIn(0.5f, 1.7f),
-        glassAlphaScale = glassAlphaScale.coerceIn(0.25f, 2f),
+        glassAlphaScale = glassAlphaScale.coerceIn(0f, 2.5f),
         glassSaturation = glassSaturation.coerceIn(0.5f, 2.5f),
         // 0 = no refraction at all (the lens shaders short-circuit), so pulling a slider to
         // the bottom really turns it off instead of leaving a 14 px warp.
@@ -217,6 +265,20 @@ data class GlassConfig(
             .split('\n')
             .take(ENTRY_LABEL_COUNT)
             .joinToString("\n") { it.trim().take(ENTRY_LABEL_MAX_LENGTH) },
+        actionBlurRadius = actionBlurRadius.coerceIn(0f, 32f),
+        actionTintAlpha = actionTintAlpha.coerceIn(0f, 1f),
+        actionTintMode = actionTintMode.coerceIn(ACTION_TINT_WHITE, ACTION_TINT_AUTO),
+        actionOutlineWidthDp = actionOutlineWidthDp.coerceIn(0.5f, 3f),
+        actionHighlight = actionHighlight.coerceIn(0f, 1f),
+        actionScale = actionScale.coerceIn(0.8f, 1.3f),
+        commentBlurRadius = commentBlurRadius.coerceIn(0f, 40f),
+        commentTintAlpha = commentTintAlpha.coerceIn(0f, 1f),
+        commentInputTintAlpha = commentInputTintAlpha.coerceIn(0f, 1f),
+        rightSlotType = if (rightSlotType == RIGHT_SLOT_MUSIC) rightSlotType else RIGHT_SLOT_MUSIC,
+        commentLightTint = commentLightTint or Color.BLACK,
+        commentDarkTint = commentDarkTint or Color.BLACK,
+        commentCornerRadiusDp = commentCornerRadiusDp.coerceIn(0f, 36f),
+        commentHighlight = commentHighlight.coerceIn(0f, 1f),
     )
 
     fun toBundle(packageName: String): Bundle = Bundle().apply {
@@ -268,6 +330,28 @@ data class GlassConfig(
         putInt(ConfigContract.KEY_TOP_BAR_TAB_COUNT, value.topBarTabCount)
         putString(ConfigContract.KEY_TOP_BAR_TAB_ORDER, value.topBarTabOrder)
         putString(ConfigContract.KEY_PUBLISH_ICON, value.publishIcon)
+        putBoolean(ConfigContract.KEY_ACTION_GLASS, value.actionGlassEnabled)
+        putFloat(ConfigContract.KEY_ACTION_BLUR, value.actionBlurRadius)
+        putFloat(ConfigContract.KEY_ACTION_TINT, value.actionTintAlpha)
+        putInt(ConfigContract.KEY_ACTION_TINT_MODE, value.actionTintMode)
+        putBoolean(ConfigContract.KEY_ACTION_OUTLINE, value.actionOutlineEnabled)
+        putFloat(ConfigContract.KEY_ACTION_OUTLINE_WIDTH, value.actionOutlineWidthDp)
+        putFloat(ConfigContract.KEY_ACTION_HIGHLIGHT, value.actionHighlight)
+        putBoolean(ConfigContract.KEY_ACTION_LIKED_TINT, value.actionLikedTint)
+        putFloat(ConfigContract.KEY_ACTION_SCALE, value.actionScale)
+        putBoolean(ConfigContract.KEY_COMMENT_GLASS, value.commentGlassEnabled)
+        putFloat(ConfigContract.KEY_COMMENT_BLUR, value.commentBlurRadius)
+        putFloat(ConfigContract.KEY_COMMENT_TINT, value.commentTintAlpha)
+        putInt(ConfigContract.KEY_COMMENT_LIGHT, value.commentLightTint)
+        putInt(ConfigContract.KEY_COMMENT_DARK, value.commentDarkTint)
+        putFloat(ConfigContract.KEY_COMMENT_CORNER, value.commentCornerRadiusDp)
+        putBoolean(ConfigContract.KEY_COMMENT_OUTLINE, value.commentOutlineEnabled)
+        putFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
+        putBoolean(ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
+        putFloat(ConfigContract.KEY_COMMENT_INPUT_TINT, value.commentInputTintAlpha)
+        putBoolean(ConfigContract.KEY_SHOW_RIGHT_SLOT, value.showRightSlot)
+        putString(ConfigContract.KEY_RIGHT_SLOT_TYPE, value.rightSlotType)
+        putBoolean(ConfigContract.KEY_HIDE_SHOOT_SAME, value.hideShootSame)
     }
 
     companion object {
@@ -285,6 +369,12 @@ data class GlassConfig(
          * renderer shrinks an over-long name to its slot as a second net.
          */
         const val ENTRY_LABEL_MAX_LENGTH = 6
+
+        /** The music-disc proxy. Further right-slot types can be added beside this. */
+        const val RIGHT_SLOT_MUSIC = "music"
+
+        /** Old `bottom_slot=music` turns the rightmost circle on. publish and me leave it off. */
+        fun legacyShowsRightSlot(bottomSlot: String?): Boolean = bottomSlot == "music"
 
         /**
          * 顶栏参数: the band the top copy's height clamp has always used. The clamp is not a
@@ -376,6 +466,23 @@ data class GlassConfig(
         const val BOTTOM_BAR_STYLE_ICON_ONLY = 1
         const val BOTTOM_BAR_STYLE_TEXT_ONLY = 2
 
+        /** 右侧操作列着色: white glass, liked heart still turns red when that switch is on. */
+        const val ACTION_TINT_WHITE = 0
+        /** 右侧操作列着色: the glyph's own colour (a red heart stays red, a yellow star stays yellow). */
+        const val ACTION_TINT_AUTO = 1
+        /** Douyin's liked-heart red, kept so a glass heart still reads as liked. */
+        const val LIKED_RED: Int = 0xFFFE2C55.toInt()
+
+        /** 评论区浅色底，不透明；透明度由 [commentTintAlpha] 另乘。 */
+        const val DEFAULT_COMMENT_LIGHT: Int = 0xFFF4F0E8.toInt()
+        /** 评论区深色底。 */
+        const val DEFAULT_COMMENT_DARK: Int = 0xFF161311.toInt()
+
+        /** 评论区浅色三档，设置页直接点选。 */
+        val COMMENT_LIGHT_CHOICES = intArrayOf(DEFAULT_COMMENT_LIGHT, 0xFFFFFFFF.toInt(), 0xFFE4E0D8.toInt())
+        /** 评论区深色三档。 */
+        val COMMENT_DARK_CHOICES = intArrayOf(DEFAULT_COMMENT_DARK, 0xFF000000.toInt(), 0xFF2C2824.toInt())
+
         fun fromBundle(bundle: Bundle?): GlassConfig {
             if (bundle == null) return GlassConfig()
             return GlassConfig(
@@ -426,6 +533,32 @@ data class GlassConfig(
                 topBarTabOrder = bundle.getString(ConfigContract.KEY_TOP_BAR_TAB_ORDER) ?: "",
                 systemDark = bundle.getBoolean(ConfigContract.KEY_SYSTEM_DARK, false),
                 publishIcon = bundle.getString(ConfigContract.KEY_PUBLISH_ICON) ?: "",
+                actionGlassEnabled = bundle.getBoolean(ConfigContract.KEY_ACTION_GLASS, false),
+                actionBlurRadius = bundle.getFloat(ConfigContract.KEY_ACTION_BLUR, 16f),
+                actionTintAlpha = bundle.getFloat(ConfigContract.KEY_ACTION_TINT, 0.22f),
+                actionTintMode = bundle.getInt(ConfigContract.KEY_ACTION_TINT_MODE, ACTION_TINT_WHITE),
+                actionOutlineEnabled = bundle.getBoolean(ConfigContract.KEY_ACTION_OUTLINE, true),
+                actionOutlineWidthDp = bundle.getFloat(ConfigContract.KEY_ACTION_OUTLINE_WIDTH, 1.2f),
+                actionHighlight = bundle.getFloat(ConfigContract.KEY_ACTION_HIGHLIGHT, 0.70f),
+                actionLikedTint = bundle.getBoolean(ConfigContract.KEY_ACTION_LIKED_TINT, true),
+                actionScale = bundle.getFloat(ConfigContract.KEY_ACTION_SCALE, 1f),
+                commentGlassEnabled = bundle.getBoolean(ConfigContract.KEY_COMMENT_GLASS, false),
+                commentBlurRadius = bundle.getFloat(ConfigContract.KEY_COMMENT_BLUR, 20f),
+                commentTintAlpha = bundle.getFloat(ConfigContract.KEY_COMMENT_TINT, 0.72f),
+                commentLightTint = bundle.getInt(ConfigContract.KEY_COMMENT_LIGHT, DEFAULT_COMMENT_LIGHT),
+                commentDarkTint = bundle.getInt(ConfigContract.KEY_COMMENT_DARK, DEFAULT_COMMENT_DARK),
+                commentCornerRadiusDp = bundle.getFloat(ConfigContract.KEY_COMMENT_CORNER, 18f),
+                commentOutlineEnabled = bundle.getBoolean(ConfigContract.KEY_COMMENT_OUTLINE, true),
+                commentHighlight = bundle.getFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, 0.35f),
+                commentInputGlass = bundle.getBoolean(ConfigContract.KEY_COMMENT_INPUT, true),
+                commentInputTintAlpha = bundle.getFloat(ConfigContract.KEY_COMMENT_INPUT_TINT, 0.72f),
+                showRightSlot = if (bundle.containsKey(ConfigContract.KEY_SHOW_RIGHT_SLOT)) {
+                    bundle.getBoolean(ConfigContract.KEY_SHOW_RIGHT_SLOT, false)
+                } else {
+                    legacyShowsRightSlot(bundle.getString(ConfigContract.KEY_BOTTOM_SLOT))
+                },
+                rightSlotType = bundle.getString(ConfigContract.KEY_RIGHT_SLOT_TYPE) ?: RIGHT_SLOT_MUSIC,
+                hideShootSame = bundle.getBoolean(ConfigContract.KEY_HIDE_SHOOT_SAME, true),
             ).normalized()
         }
     }
