@@ -152,10 +152,16 @@ object ConfigContract {
     const val KEY_COMMENT_INPUT_TINT = "comment_input_tint"
 
     /**
-     * Which control occupies the bottom-right circle: "publish" (default), "music", or "me".
-     * The control that leaves that circle moves to the leading circle.
+     * Legacy 1.7.13–1.7.15 choice: "publish", "music", or "me". Read once to migrate into
+     * [KEY_SHOW_RIGHT_SLOT]. No longer written.
      */
     const val KEY_BOTTOM_SLOT = "bottom_slot"
+
+    /** Show the rightmost circle. Default off. What it draws is [KEY_RIGHT_SLOT_TYPE]. */
+    const val KEY_SHOW_RIGHT_SLOT = "show_right_slot"
+
+    /** Content of the rightmost circle. Currently only "music". */
+    const val KEY_RIGHT_SLOT_TYPE = "right_slot_type"
 
     /** Hide the 拍同款 bubble drawn over the music disc. Default on. The disc stays clickable. */
     const val KEY_HIDE_SHOOT_SAME = "hide_shoot_same"

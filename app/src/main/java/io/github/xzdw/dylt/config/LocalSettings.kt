@@ -365,6 +365,16 @@ object LocalSettings {
     /** Publishes the current complete configuration as one apply revision. */
     fun applyChanges(context: Context) = edit(context) { }
 
+    /**
+     * `show_right_slot` wins once it has been saved. Before that, the 1.7.15
+     * `bottom_slot=music` choice turns the circle on; publish and me leave it off.
+     */
+    private fun readShowRightSlot(p: SharedPreferences): Boolean {
+        val key = GLOBAL + ConfigContract.KEY_SHOW_RIGHT_SLOT
+        if (p.contains(key)) return p.getBoolean(key, false)
+        return GlassConfig.legacyShowsRightSlot(p.getString(GLOBAL + ConfigContract.KEY_BOTTOM_SLOT, null))
+    }
+
     private fun readConfig(p: SharedPreferences, prefix: String, defaults: GlassConfig): GlassConfig = GlassConfig(
         // Global-only knobs, exactly like controlDrop: they live on the settings page,
         // which writes the GLOBAL prefix. Reading them from an app prefix let a stale
@@ -541,9 +551,11 @@ object LocalSettings {
         commentInputTintAlpha = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_INPUT_TINT, defaults.commentInputTintAlpha)
         } else defaults.commentInputTintAlpha,
-        bottomSlot = if (prefix == GLOBAL) {
-            p.getString(GLOBAL + ConfigContract.KEY_BOTTOM_SLOT, defaults.bottomSlot) ?: defaults.bottomSlot
-        } else defaults.bottomSlot,
+        showRightSlot = if (prefix == GLOBAL) readShowRightSlot(p) else defaults.showRightSlot,
+        rightSlotType = if (prefix == GLOBAL) {
+            p.getString(GLOBAL + ConfigContract.KEY_RIGHT_SLOT_TYPE, defaults.rightSlotType)
+                ?: defaults.rightSlotType
+        } else defaults.rightSlotType,
         hideShootSame = if (prefix == GLOBAL) {
             p.getBoolean(GLOBAL + ConfigContract.KEY_HIDE_SHOOT_SAME, defaults.hideShootSame)
         } else defaults.hideShootSame,
@@ -613,7 +625,8 @@ object LocalSettings {
             putFloat(prefix + ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
             putBoolean(prefix + ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
             putFloat(prefix + ConfigContract.KEY_COMMENT_INPUT_TINT, value.commentInputTintAlpha)
-            putString(prefix + ConfigContract.KEY_BOTTOM_SLOT, value.bottomSlot)
+            putBoolean(prefix + ConfigContract.KEY_SHOW_RIGHT_SLOT, value.showRightSlot)
+            putString(prefix + ConfigContract.KEY_RIGHT_SLOT_TYPE, value.rightSlotType)
             putBoolean(prefix + ConfigContract.KEY_HIDE_SHOOT_SAME, value.hideShootSame)
         }
         putFloat(prefix + ConfigContract.KEY_ICON_SCALE, value.iconScale)

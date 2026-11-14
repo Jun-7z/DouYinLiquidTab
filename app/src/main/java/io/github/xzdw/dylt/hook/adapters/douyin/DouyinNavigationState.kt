@@ -270,19 +270,12 @@ internal class DouyinNavigationState(private val context: Context) : AppNavigati
         val row = source ?: return false
         // There is no leading circle. A stray leading hit must not open publish.
         if (leading) return false
-        return when (DouyinBottomSlot.mode) {
-            DouyinBottomSlot.MUSIC -> DouyinBottomSlot.clickDisc()
-            DouyinBottomSlot.ME -> clickCell(row.getChildAt(DouyinBottomSlot.ME_CELL_INDEX))
-            else -> clickCell(publishCell(row))
-        }
+        // The rightmost circle is the disc when that switch is on, otherwise the plus.
+        if (DouyinBottomSlot.showRight) return DouyinBottomSlot.clickDisc()
+        return clickCell(publishCell(row))
     }
 
-    override fun performPillAction(host: View, source: ViewGroup?, kind: Int): Boolean {
-        if (kind != DouyinBottomSlot.PILL_DISC) return false
-        return DouyinBottomSlot.clickDisc()
-    }
-
-    /** The plus between the pill and the right circle. Same target as the publish circle. */
+    /** The original plus, shifted left so the disc can sit on the outer edge. */
     override fun performMiddleAction(host: View, source: ViewGroup?): Boolean {
         val row = source ?: return false
         return clickCell(publishCell(row))

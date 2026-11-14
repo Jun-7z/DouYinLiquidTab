@@ -102,11 +102,10 @@ internal interface TargetAdapter {
      */
     fun syncNavigationChrome(config: GlassConfig) = Unit
     /**
-     * Diameter of a glass circle drawn between the pill and the trailing action,
-     * as a fraction of the bar height. Zero keeps the publish-mode path: pill, one
-     * gap, one trailing circle.
+     * A second trailing circle, the same size as the publish circle, drawn on its
+     * outer side. False keeps every other bar on pill-plus-one-circle.
      */
-    fun navigationMiddleButtonFraction(): Float = 0f
+    fun navigationRightSlotCircle(): Boolean = false
     /** Drop a native slot from the pill without removing its click target. */
     fun navigationEntrySuppressed(index: Int): Boolean = false
     /**

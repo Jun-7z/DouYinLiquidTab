@@ -18,10 +18,9 @@ import java.util.WeakHashMap
 import kotlin.math.max
 
 /**
- * The bottom-right circle stands in for the publish button, the profile tab, or the
- * video's music disc. In music and profile mode the plus is its own glass circle
- * between the pill and that right circle. Publish mode is the original four-tab
- * pill plus the one right-hand circle.
+ * The pill is always 首页 / 朋友 / 消息 / 我. 「显示加号」 shows or hides the original
+ * publish circle. 「右侧按钮」 adds a second circle of that same size to its right;
+ * today that circle is the music-disc proxy.
  *
  * The disc is never reparented and this object never changes its visibility, alpha,
  * or anything else in the right-hand action column. Jun hides the original disc
@@ -29,31 +28,17 @@ import kotlin.math.max
  * transparent, INVISIBLE, or GONE.
  */
 internal object DouyinBottomSlot {
-    const val PUBLISH = GlassConfig.BOTTOM_SLOT_PUBLISH
-    const val MUSIC = GlassConfig.BOTTOM_SLOT_MUSIC
-    const val ME = GlassConfig.BOTTOM_SLOT_ME
-
-    /** A pill tap that is not a page. The host must not move the selection onto it. */
-    const val PILL_DISC = 2
-
-    /** Diameter of the standalone plus, as a fraction of the bar height. Slightly under the right circle. */
-    const val MIDDLE_BUTTON_FRACTION = 0.86f
-
-    /** Native row index of 我. Slot 2 is the publish action. */
-    const val ME_CELL_INDEX = 4
-
-    /** One cell of the pill, in the order the host's capsule and this renderer share. */
-    internal sealed class PillCell {
-        data class Tab(val nativeIndex: Int, val labelIndex: Int) : PillCell()
-        data object Disc : PillCell()
-    }
-
     private const val LOOK_MS = 400L
     private const val ART_PX = 160
     private const val WALK_BUDGET = 1_600
     private const val SPIN_MS = 8_000f
 
-    @Volatile var mode: String = PUBLISH
+    /** The original publish circle. Driven by 显示加号 (`show_post`). */
+    @Volatile var showPlus: Boolean = true
+        private set
+
+    /** The rightmost circle. Today it is the music disc. */
+    @Volatile var showRight: Boolean = false
         private set
 
     private var hideBadge = true
@@ -72,46 +57,6 @@ internal object DouyinBottomSlot {
     private var spinAt = 0L
     private val hiddenBadges = WeakHashMap<View, Int>()
     private val badgeLogged = HashSet<String>()
-
-    /** No leading circle in any mode. Publish mode keeps the pre-1.7.13 geometry. */
-    fun leftGapDp(): Float = 0f
-
-    /**
-     * Music and profile put the plus in its own circle between the pill and the
-     * right-hand button. Zero in publish mode, so that bar's path does not change.
-     */
-    fun middleButtonFraction(): Float =
-        if (mode == MUSIC || mode == ME) MIDDLE_BUTTON_FRACTION else 0f
-
-    /**
-     * 我 stays a real page. Removing it from the host's enabled list mapped a profile
-     * selection back onto 首页, so the pill layout drops it itself instead.
-     */
-    fun suppressMeTab(): Boolean = false
-
-    /**
-     * Visual cells for the current mode, with hidden native tabs removed.
-     * Null in publish mode so the host and the renderer keep the original four-tab path.
-     */
-    fun pillCells(enabledNative: Collection<Int>): List<PillCell>? {
-        val raw = when (mode) {
-            // 发布 sits between the pill and the right circle, not in the pill.
-            MUSIC -> listOf(
-                PillCell.Tab(0, 0),
-                PillCell.Tab(1, 1),
-                PillCell.Tab(3, 2),
-                PillCell.Tab(4, 3),
-            )
-            ME -> listOf(
-                PillCell.Tab(0, 0),
-                PillCell.Tab(1, 1),
-                PillCell.Tab(3, 2),
-                PillCell.Disc,
-            )
-            else -> return null
-        }
-        return raw.filter { cell -> cell !is PillCell.Tab || cell.nativeIndex in enabledNative }
-    }
 
     fun discArt(): Bitmap? = art?.takeIf { !it.isRecycled && it.width > 0 }
 
@@ -135,28 +80,27 @@ internal object DouyinBottomSlot {
         return spinBase + (now - spinAt) * (360f / SPIN_MS)
     }
 
-    /** Called before the host rebuilds its path, so the middle circle matches this config. */
+    /** Called before the host rebuilds its path, so the circles match this config. */
     fun sync(config: GlassConfig) {
-        val slot = when (config.bottomSlot) {
-            MUSIC, ME -> config.bottomSlot
-            else -> PUBLISH
-        }
-        // 去除发布按钮 removes the circle entirely, so the swap has nowhere to land.
-        val next = if (config.showPostButton) slot else PUBLISH
-        if (next == mode && config.hideShootSame == hideBadge) return
-        mode = next
+        val plus = config.showPostButton
+        val right = config.showRightSlot && config.rightSlotType == GlassConfig.RIGHT_SLOT_MUSIC
+        if (plus == showPlus && right == showRight && config.hideShootSame == hideBadge) return
+        showPlus = plus
+        showRight = right
         hideBadge = config.hideShootSame
-        val label = "$mode:$hideBadge"
+        val label = "$plus:$right:$hideBadge"
         if (loggedMode != label) {
             loggedMode = label
-            val middle = if (middleButtonFraction() > 0f) " middle=plus" else ""
-            Xposed.log("[OfflineGlass][BottomSlot] mode=$mode pill=${pillName()}$middle hideShootSame=$hideBadge")
+            val rightName = if (right) config.rightSlotType else "off"
+            Xposed.log(
+                "[OfflineGlass][BottomSlot] plus=$plus right=$rightName hideShootSame=$hideBadge",
+            )
         }
     }
 
     fun refresh(root: View, config: GlassConfig) {
         sync(config)
-        val needDisc = mode == MUSIC || mode == ME || hideBadge
+        val needDisc = showRight || hideBadge
         if (!needDisc) {
             restoreBadges()
             return
@@ -186,7 +130,7 @@ internal object DouyinBottomSlot {
             badgeAt = now
             hideBadges(view)
         }
-        if (mode == MUSIC || mode == ME) ensureArt(view, now)
+        if (showRight) ensureArt(view, now)
     }
 
     /**
@@ -215,12 +159,6 @@ internal object DouyinBottomSlot {
         }
         Xposed.log("[OfflineGlass][BottomSlot] disc click=miss")
         return false
-    }
-
-    private fun pillName(): String = when (mode) {
-        MUSIC -> "首页/朋友/消息/我"
-        ME -> "首页/朋友/消息/转盘"
-        else -> "首页/朋友/消息/我"
     }
 
     private fun ensureArt(view: View, now: Long) {

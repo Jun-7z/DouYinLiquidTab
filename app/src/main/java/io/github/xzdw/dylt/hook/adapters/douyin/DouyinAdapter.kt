@@ -67,45 +67,8 @@ internal object DouyinAdapter : TargetAdapter {
      * 12dp group gap the reference bottom bar uses between its capsule and its button.
      */
     override val navigationActionReserveGapDp = 12f
-    override val navigationActionLeftGapDp: Float
-        get() = DouyinBottomSlot.leftGapDp()
     override fun syncNavigationChrome(config: GlassConfig) = DouyinBottomSlot.sync(config)
-    override fun navigationMiddleButtonFraction(): Float = DouyinBottomSlot.middleButtonFraction()
-    override fun navigationEntrySuppressed(index: Int): Boolean =
-        DouyinBottomSlot.suppressMeTab() && index == DouyinBottomSlot.ME_CELL_INDEX
-    override fun pillVisualSlotCount(enabledNativeIndices: List<Int>): Int =
-        DouyinBottomSlot.pillCells(enabledNativeIndices)?.size
-            ?: enabledNativeIndices.size.coerceAtLeast(1)
-    override fun visualPositionOverride(nativeIndex: Int, enabledNativeIndices: List<Int>): Float? {
-        val cells = DouyinBottomSlot.pillCells(enabledNativeIndices) ?: return null
-        val at = cells.indexOfFirst { it is DouyinBottomSlot.PillCell.Tab && it.nativeIndex == nativeIndex }
-        return if (at >= 0) at.toFloat() else Float.NaN
-    }
-    override fun nativeIndexForVisualOverride(visualIndex: Int, enabledNativeIndices: List<Int>): Int? {
-        val cell = DouyinBottomSlot.pillCells(enabledNativeIndices)?.getOrNull(visualIndex) ?: return null
-        return when (cell) {
-            is DouyinBottomSlot.PillCell.Tab -> cell.nativeIndex
-            else -> -1
-        }
-    }
-    override fun pillActionKind(visualIndex: Int, enabledNativeIndices: List<Int>): Int {
-        val cell = DouyinBottomSlot.pillCells(enabledNativeIndices)?.getOrNull(visualIndex) ?: return 0
-        return when (cell) {
-            is DouyinBottomSlot.PillCell.Disc -> DouyinBottomSlot.PILL_DISC
-            else -> 0
-        }
-    }
-    override fun nearestSelectableVisual(visualFloat: Float, enabledNativeIndices: List<Int>): Int? {
-        val cells = DouyinBottomSlot.pillCells(enabledNativeIndices) ?: return null
-        val tabs = cells.mapIndexedNotNull { index, cell ->
-            if (cell is DouyinBottomSlot.PillCell.Tab) index else null
-        }
-        return tabs.minByOrNull { kotlin.math.abs(it - visualFloat) }
-    }
-    override fun suppressSelectionCapsule(nativeIndex: Int, enabledNativeIndices: List<Int>): Boolean {
-        val cells = DouyinBottomSlot.pillCells(enabledNativeIndices) ?: return false
-        return cells.none { it is DouyinBottomSlot.PillCell.Tab && it.nativeIndex == nativeIndex }
-    }
+    override fun navigationRightSlotCircle(): Boolean = DouyinBottomSlot.showRight
     /**
      * The module renders a second glass host at the top edge of the same content frame:
      * a literal copy of the bottom bar's host. Its content is Douyin's own title-bar tab

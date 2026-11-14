@@ -4735,12 +4735,11 @@ internal fun syncOpticalVisibilityCompanions() {
     /**
      * Gap between an adapter's detached action button and the main pill, in px.
      *
-     * "鍘婚櫎鍙戝竷鎸夐挳" collapses this reserve for the bottom bar. With no gap there is no detached
-     * button either ([navigationActionButtonPx] returns 0), so [rebuildPanelPath] falls back to
-     * the single capsule spanning the host, [tabWidthPx] hands the four slots the whole width and
-     * [actionBandAt] stops reporting a trailing action —which is what makes the capsule fill the
-     * bottom instead of ending short of the publish circle. The top copy is deliberately excluded:
-     * its two reserves are its own tab-menu keys, not a publish button.
+     * Hiding the plus collapses this reserve for the bottom bar, unless the right-slot
+     * circle is on — that circle is the same size and keeps the gap by itself. With no
+     * gap there is no detached button either ([navigationActionButtonPx] returns 0), so
+     * [rebuildPanelPath] falls back to the single capsule spanning the host. The top
+     * copy is deliberately excluded: its two reserves are its own tab-menu keys.
      */
     private fun navigationActionGapPx(): Float =
         if (topBar) {
@@ -4753,7 +4752,8 @@ internal fun syncOpticalVisibilityCompanions() {
                 (actionReserveDp?.second ?: (targetAdapter?.navigationActionReserveGapDp ?: 0f)) *
                     density * topBarScale()
             }
-        } else if (!config.showPostButton) {
+        } else if (!config.showPostButton && targetAdapter?.navigationRightSlotCircle() != true) {
+            // No plus and no right-slot circle: the pill spans the host.
             0f
         } else {
             (actionReserveDp?.second ?: (targetAdapter?.navigationActionReserveGapDp ?: 0f)) *
@@ -4770,7 +4770,7 @@ internal fun syncOpticalVisibilityCompanions() {
             }
             return (actionReserveDp?.first ?: 0f) * density * topBarScale()
         }
-        // 去除发布按钮 collapses both circles. The leading one is the displaced plus.
+        // The bottom bar has no leading circle. The plus is the trailing circle.
         if (!config.showPostButton) return 0f
         val adapterGap = targetAdapter?.navigationActionLeftGapDp ?: 0f
         if (adapterGap > 0f) return adapterGap * density
@@ -4830,15 +4830,14 @@ internal fun syncOpticalVisibilityCompanions() {
     }
 
     /**
-     * Diameter of the glass circle between the pill and the trailing action.
-     * Zero for publish mode and every other app, so their path stays pill + one circle.
+     * The original plus, moved left of the rightmost circle when that circle is also on.
+     * Same diameter as the trailing circle. Zero keeps the single-circle path.
      */
     private fun navigationMiddleButtonPx(): Float {
         if (topBar || !config.showPostButton) return 0f
+        if (targetAdapter?.navigationRightSlotCircle() != true) return 0f
         if (navigationActionGapPx() <= 0f) return 0f
-        val fraction = targetAdapter?.navigationMiddleButtonFraction() ?: 0f
-        if (fraction <= 0f) return 0f
-        return height * fraction.coerceIn(0.5f, 1f)
+        return navigationActionButtonPx()
     }
 
     /** The middle circle plus the same gap the trailing circle keeps on its left. */
@@ -6146,9 +6145,10 @@ internal fun syncOpticalVisibilityCompanions() {
             // sizes the panel as the full cluster), which is what makes the capsule fill it.
             old.showPostButton != config.showPostButton ||
 
-            // 右下角按钮 adds the standalone plus between the pill and the right circle
-            // in music and profile mode, and removes it again for the default plus.
-            old.bottomSlot != config.bottomSlot ||
+            // 右侧按钮 adds a second circle of the same size to the right of the plus,
+            // or becomes the only circle when the plus is hidden.
+            old.showRightSlot != config.showRightSlot ||
+            old.rightSlotType != config.rightSlotType ||
 
             // 顶栏两侧按钮: a hidden corner key removes a whole shape from the panel path (the
             // circle) and moves the capsule's edge, so the path must be rebuilt.

@@ -189,12 +189,12 @@ data class GlassConfig(
      */
     val commentInputTintAlpha: Float = 0.72f,
     /**
-     * Right-hand circle of the bottom bar. [BOTTOM_SLOT_PUBLISH] is today's layout.
-     * [BOTTOM_SLOT_MUSIC] draws a live copy of the video's music disc there.
-     * [BOTTOM_SLOT_ME] draws the profile tab there. The displaced plus moves to the
-     * leading circle. The disc itself is never reparented.
+     * Rightmost circle, drawn to the right of the original plus (or in its place when
+     * the plus is hidden). Off by default. [rightSlotType] says what it shows.
      */
-    val bottomSlot: String = BOTTOM_SLOT_PUBLISH,
+    val showRightSlot: Boolean = false,
+    /** Content of [showRightSlot]. [RIGHT_SLOT_MUSIC] is the only type so far. */
+    val rightSlotType: String = RIGHT_SLOT_MUSIC,
     /** 隐藏拍同款. The overlay on the music disc goes away; the disc still receives clicks. */
     val hideShootSame: Boolean = true,
 ) {
@@ -274,10 +274,7 @@ data class GlassConfig(
         commentBlurRadius = commentBlurRadius.coerceIn(0f, 40f),
         commentTintAlpha = commentTintAlpha.coerceIn(0f, 1f),
         commentInputTintAlpha = commentInputTintAlpha.coerceIn(0f, 1f),
-        bottomSlot = when (bottomSlot) {
-            BOTTOM_SLOT_MUSIC, BOTTOM_SLOT_ME -> bottomSlot
-            else -> BOTTOM_SLOT_PUBLISH
-        },
+        rightSlotType = if (rightSlotType == RIGHT_SLOT_MUSIC) rightSlotType else RIGHT_SLOT_MUSIC,
         commentLightTint = commentLightTint or Color.BLACK,
         commentDarkTint = commentDarkTint or Color.BLACK,
         commentCornerRadiusDp = commentCornerRadiusDp.coerceIn(0f, 36f),
@@ -352,7 +349,8 @@ data class GlassConfig(
         putFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
         putBoolean(ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
         putFloat(ConfigContract.KEY_COMMENT_INPUT_TINT, value.commentInputTintAlpha)
-        putString(ConfigContract.KEY_BOTTOM_SLOT, value.bottomSlot)
+        putBoolean(ConfigContract.KEY_SHOW_RIGHT_SLOT, value.showRightSlot)
+        putString(ConfigContract.KEY_RIGHT_SLOT_TYPE, value.rightSlotType)
         putBoolean(ConfigContract.KEY_HIDE_SHOOT_SAME, value.hideShootSame)
     }
 
@@ -372,9 +370,11 @@ data class GlassConfig(
          */
         const val ENTRY_LABEL_MAX_LENGTH = 6
 
-        const val BOTTOM_SLOT_PUBLISH = "publish"
-        const val BOTTOM_SLOT_MUSIC = "music"
-        const val BOTTOM_SLOT_ME = "me"
+        /** The music-disc proxy. Further right-slot types can be added beside this. */
+        const val RIGHT_SLOT_MUSIC = "music"
+
+        /** Old `bottom_slot=music` turns the rightmost circle on. publish and me leave it off. */
+        fun legacyShowsRightSlot(bottomSlot: String?): Boolean = bottomSlot == "music"
 
         /**
          * 顶栏参数: the band the top copy's height clamp has always used. The clamp is not a
@@ -552,7 +552,12 @@ data class GlassConfig(
                 commentHighlight = bundle.getFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, 0.35f),
                 commentInputGlass = bundle.getBoolean(ConfigContract.KEY_COMMENT_INPUT, true),
                 commentInputTintAlpha = bundle.getFloat(ConfigContract.KEY_COMMENT_INPUT_TINT, 0.72f),
-                bottomSlot = bundle.getString(ConfigContract.KEY_BOTTOM_SLOT) ?: BOTTOM_SLOT_PUBLISH,
+                showRightSlot = if (bundle.containsKey(ConfigContract.KEY_SHOW_RIGHT_SLOT)) {
+                    bundle.getBoolean(ConfigContract.KEY_SHOW_RIGHT_SLOT, false)
+                } else {
+                    legacyShowsRightSlot(bundle.getString(ConfigContract.KEY_BOTTOM_SLOT))
+                },
+                rightSlotType = bundle.getString(ConfigContract.KEY_RIGHT_SLOT_TYPE) ?: RIGHT_SLOT_MUSIC,
                 hideShootSame = bundle.getBoolean(ConfigContract.KEY_HIDE_SHOOT_SAME, true),
             ).normalized()
         }

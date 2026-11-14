@@ -1774,8 +1774,24 @@ private fun GlassSettingsSubpage(
                     GlassPublishIconPreference(config.publishIcon, backdrop, palette) {
                         actions.setGlassConfig(config.copy(publishIcon = it))
                     }
-                    GlassBottomSlotChoice(config.bottomSlot, backdrop, palette) {
-                        actions.setGlassConfig(config.copy(bottomSlot = it))
+                    GlassSwitchRow(
+                        "显示加号",
+                        "原来的加号圆钮，只控制显不显示。胶囊始终是首页、朋友、消息、我",
+                        config.showPostButton,
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(showPostButton = it)) }
+                    GlassSwitchRow(
+                        "右侧按钮",
+                        "打开后在加号右边再加一个同样大小的圆钮；加号关闭时它占原来的位置",
+                        config.showRightSlot,
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(showRightSlot = it)) }
+                    if (config.showRightSlot) {
+                        GlassRightSlotTypeChoice(config.rightSlotType, backdrop, palette) {
+                            actions.setGlassConfig(config.copy(rightSlotType = it))
+                        }
                     }
                     GlassSwitchRow(
                         "隐藏拍同款",
@@ -2451,30 +2467,24 @@ private fun GlassStyleChoice(
 }
 
 /**
- * 右下角按钮: publish stays the default. Music and profile keep the plus as its own
- * circle between the pill and the right-hand button. The music disc is a copy.
+ * Content of the rightmost circle. One option today; more types join this list.
+ * The circle itself is the same glass as the plus, drawn to the plus's right.
  */
 @Composable
-private fun GlassBottomSlotChoice(
+private fun GlassRightSlotTypeChoice(
     selected: String,
     backdrop: Backdrop,
     palette: GlassPalette,
     onSelected: (String) -> Unit,
 ) {
-    val options = listOf(
-        GlassConfig.BOTTOM_SLOT_PUBLISH to "加号",
-        GlassConfig.BOTTOM_SLOT_MUSIC to "音乐转盘",
-        GlassConfig.BOTTOM_SLOT_ME to "我",
-    )
-    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-        Text("右下角按钮", color = palette.content, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(4.dp))
+    val options = listOf(GlassConfig.RIGHT_SLOT_MUSIC to "音乐转盘")
+    Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
         Text(
-            "选中的一项放在底栏右侧圆钮。音乐和「我」时，加号单独做成圆钮，放在胶囊和右侧圆钮中间，两边空隙一样。胶囊里音乐是首页/朋友/消息/我，选「我」时是首页/朋友/消息/转盘。默认加号，布局与原来一致。音乐转盘只是原控件的代理，不改动右侧操作列；原转盘即使被隐藏，圆钮仍显示封面并转发点击。",
+            "右侧按钮内容。音乐转盘是原控件的代理，不改动右侧操作列；原转盘即使被隐藏，圆钮仍显示封面并转发点击。",
             color = palette.secondary,
             fontSize = 12.sp,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             options.forEach { (value, label) ->
                 val isSelected = value == selected
