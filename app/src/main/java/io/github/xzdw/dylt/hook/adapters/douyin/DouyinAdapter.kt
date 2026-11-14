@@ -14,8 +14,10 @@ import io.github.xzdw.dylt.targets.TargetSpec
 
 /** Douyin 40.3.0: only root_view is an authoritative five-cell navigation row. */
 internal object DouyinAdapter : TargetAdapter {
-    override fun installHooks(context: HookLoadContext, spec: TargetSpec) =
+    override fun installHooks(context: HookLoadContext, spec: TargetSpec) {
         DouyinPlayerTextureHooks.install(context)
+        DouyinBottomSlot.installHooks()
+    }
     override val key = "douyin"
     override val allowRenderNodeRefresh = true
     override val ownsNavigationFinding = true

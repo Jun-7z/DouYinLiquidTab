@@ -353,7 +353,7 @@ internal class DouyinNavigationState(private val context: Context) : AppNavigati
         surfaceColor: () -> Int,
     ) {
         (host as? io.github.xzdw.dylt.hook.GlassHostLayout)?.let { layout ->
-            DouyinBottomSlot.refresh(layout.rootView, layout.config)
+            DouyinBottomSlot.refresh(layout, layout.rootView, layout.config)
         }
         pageController.update(host, barHeightPx)
     }

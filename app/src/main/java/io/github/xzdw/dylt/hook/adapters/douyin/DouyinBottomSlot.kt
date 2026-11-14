@@ -1,20 +1,27 @@
 package io.github.xzdw.dylt.hook.adapters.douyin
 
+import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.os.SystemClock
+import android.view.Choreographer
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
+import android.view.animation.LinearInterpolator
 import android.widget.ImageView
 import android.widget.TextView
 import io.github.xzdw.dylt.config.GlassConfig
 import io.github.xzdw.dylt.hook.GlassHostLayout
+import io.github.xzdw.dylt.hookx.MethodHook
 import io.github.xzdw.dylt.hookx.Xposed
 import java.lang.ref.WeakReference
 import java.util.ArrayDeque
+import java.util.Collections
 import java.util.WeakHashMap
+import kotlin.math.abs
 import kotlin.math.max
 
 /**
@@ -22,16 +29,22 @@ import kotlin.math.max
  * publish circle. 「右侧按钮」 adds a second circle of that same size to its right;
  * today that circle is the music-disc proxy.
  *
- * The disc is never reparented and this object never changes its visibility, alpha,
- * or anything else in the right-hand action column. Jun hides the original disc
- * himself. The circle still has to draw and forward clicks when that view is already
- * transparent, INVISIBLE, or GONE.
+ * The real [MusicCoverView] stays in the feed item. Reparenting it into the glass host
+ * pulls it out of the recycled page that loads the cover and runs the spin, and the
+ * host is not a normal parent for that view. While the right circle is the disc, this
+ * object keeps the original VISIBLE and forces its alpha to 0, so the slot stays an
+ * empty gap and the original animator keeps running. The circle's own spin does not
+ * depend on that animator.
  */
 internal object DouyinBottomSlot {
     private const val LOOK_MS = 400L
     private const val ART_PX = 160
     private const val WALK_BUDGET = 1_600
-    private const val SPIN_MS = 8_000f
+    private const val SPIN_MS = 8_000L
+    /** A live disc moves about this far between frames. Smaller changes are noise. */
+    private const val SYNC_DEG = 0.2f
+    /** Same hold as the feed's static-video detector. Longer than one dropped frame. */
+    private const val PAUSE_HOLD_MS = 250L
 
     /** The original publish circle. Driven by 显示加号 (`show_post`). */
     @Volatile var showPlus: Boolean = true
@@ -51,33 +64,103 @@ internal object DouyinBottomSlot {
     private var artTriedAt = 0L
     private var loggedMode = ""
     private var loggedDisc = ""
+    private var loggedPlaying: Boolean? = null
     private var lastLiveRotation = Float.NaN
-    private var lastLiveAt = 0L
-    private var spinBase = 0f
-    private var spinAt = 0L
+    private var spinView: View? = null
+    private var watchPosted = false
+    private var hooksInstalled = false
+    private var videoStamp = Long.MIN_VALUE
+    private var videoStampAt = 0L
+    private var hostRef: WeakReference<View>? = null
     private val hiddenBadges = WeakHashMap<View, Int>()
     private val badgeLogged = HashSet<String>()
+    /** Discs we are keeping transparent. Identity lookup from the alpha hook. */
+    private val forced = Collections.synchronizedSet(
+        Collections.newSetFromMap(WeakHashMap<View, Boolean>()),
+    )
+    private val held = ArrayList<HeldDisc>(2)
+
+    /**
+     * Our own 8-second turn. The feed view's rotation only seeks this; a frozen
+     * original must not freeze the circle.
+     */
+    private val spin: ValueAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
+        duration = SPIN_MS
+        repeatCount = ValueAnimator.INFINITE
+        interpolator = LinearInterpolator()
+    }
+
+    private val spinWatch = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (!showRight) {
+                watchPosted = false
+                return
+            }
+            val playing = videoPlaying(SystemClock.uptimeMillis())
+            if (loggedPlaying != playing) {
+                loggedPlaying = playing
+                Xposed.log("[OfflineGlass][BottomSlot] disc spin=${if (playing) "run" else "paused"}")
+            }
+            if (playing) {
+                if (!spin.isStarted) spin.start()
+                else if (spin.isPaused) spin.resume()
+                val host = hostRef?.get()
+                if (host != null && host.isShown) host.invalidate()
+            } else if (spin.isStarted && !spin.isPaused) {
+                spin.pause()
+            }
+            Choreographer.getInstance().postFrameCallback(this)
+        }
+    }
 
     fun discArt(): Bitmap? = art?.takeIf { !it.isRecycled && it.width > 0 }
 
     /**
-     * The real view's rotation while it is actually spinning. A hidden disc often
-     * freezes that property, so after a short stall the circle keeps turning from
-     * the last angle instead of resampling the bitmap.
+     * Angle of the bottom circle. Always the local animator while the video is
+     * playing (or when playback cannot be read). The real view's rotation is a
+     * phase hint only, and only while that value is actually changing.
      */
     fun discRotation(): Float {
-        val now = SystemClock.uptimeMillis()
+        ensureWatch()
         val live = discRef?.get()?.rotation
-        if (live != null && live != lastLiveRotation) {
-            lastLiveRotation = live
-            spinBase = live
-            spinAt = now
-            lastLiveAt = now
-            return live
+        if (live != null && !live.isNaN() && spin.isStarted) {
+            val delta = if (lastLiveRotation.isNaN()) 360f else abs(wrap(live - lastLiveRotation))
+            if (delta > SYNC_DEG) {
+                lastLiveRotation = live
+                spin.currentPlayTime = (wrap(live) / 360f * SPIN_MS.toFloat()).toLong()
+            }
         }
-        if (now - lastLiveAt < 80L) return spinBase
-        if (spinAt == 0L) spinAt = now
-        return spinBase + (now - spinAt) * (360f / SPIN_MS)
+        if (!spin.isStarted) return if (lastLiveRotation.isNaN()) 0f else wrap(lastLiveRotation)
+        val value = spin.animatedValue
+        return if (value is Float) value else 0f
+    }
+
+    /** Keep setAlpha(0) / INVISIBLE from sticking on the disc we are showing. */
+    fun installHooks() {
+        if (hooksInstalled) return
+        hooksInstalled = true
+        runCatching {
+            Xposed.hookAllMethods(View::class.java, "setAlpha", object : MethodHook() {
+                override fun beforeHookedMethod(param: MethodHook.MethodHookParam) {
+                    val view = param.thisObject as? View ?: return
+                    if (!forced.contains(view)) return
+                    val alpha = param.args.getOrNull(0) as? Float ?: return
+                    if (alpha != 0f) param.args[0] = 0f
+                }
+            })
+            Xposed.hookAllMethods(View::class.java, "setVisibility", object : MethodHook() {
+                override fun beforeHookedMethod(param: MethodHook.MethodHookParam) {
+                    val view = param.thisObject as? View ?: return
+                    if (!forced.contains(view)) return
+                    val visibility = param.args.getOrNull(0) as? Int ?: return
+                    // INVISIBLE makes isShown() false and Douyin pauses the spin.
+                    // GONE is Douyin collapsing the slot itself; leave that alone.
+                    if (visibility == View.INVISIBLE) param.args[0] = View.VISIBLE
+                }
+            })
+        }.onFailure { error ->
+            Xposed.log("[OfflineGlass][BottomSlot] disc hide hook failed ${error.javaClass.simpleName}")
+        }
     }
 
     /** Called before the host rebuilds its path, so the circles match this config. */
@@ -88,6 +171,10 @@ internal object DouyinBottomSlot {
         showPlus = plus
         showRight = right
         hideBadge = config.hideShootSame
+        if (showRight) ensureWatch() else {
+            stopSpin()
+            releaseHeld()
+        }
         val label = "$plus:$right:$hideBadge"
         if (loggedMode != label) {
             loggedMode = label
@@ -98,11 +185,13 @@ internal object DouyinBottomSlot {
         }
     }
 
-    fun refresh(root: View, config: GlassConfig) {
+    fun refresh(host: View, root: View, config: GlassConfig) {
+        hostRef = WeakReference(host)
         sync(config)
         val needDisc = showRight || hideBadge
         if (!needDisc) {
             restoreBadges()
+            releaseHeld()
             return
         }
         val now = SystemClock.uptimeMillis()
@@ -130,7 +219,20 @@ internal object DouyinBottomSlot {
             badgeAt = now
             hideBadges(view)
         }
-        if (showRight) ensureArt(view, now)
+        if (showRight) {
+            if (view !== spinView) {
+                spinView = view
+                lastLiveRotation = Float.NaN
+            }
+            val parent = view.parent as? View
+            val parentNeeded = parent?.javaClass?.simpleName == "MusicCoverContainerLayout"
+            val heldView = held.any { it.view === view }
+            val heldParent = !parentNeeded || held.any { it.view === parent }
+            if (!heldView || !heldParent) holdCurrent(view)
+            ensureArt(view, now)
+        } else {
+            releaseHeld()
+        }
     }
 
     /**
@@ -178,8 +280,12 @@ internal object DouyinBottomSlot {
         )
     }
 
+    /**
+     * Alpha is applied by the parent, not by [View.draw], so a disc we forced to
+     * alpha 0 still paints its cover into the proxy bitmap.
+     */
     private fun canDraw(view: View): Boolean =
-        view.visibility == View.VISIBLE && view.alpha > 0.01f && view.width > 0 && view.height > 0
+        view.visibility != View.GONE && view.width > 0 && view.height > 0
 
     private fun renderView(view: View): Bitmap? {
         val bitmap = obtainArt()
@@ -253,6 +359,122 @@ internal object DouyinBottomSlot {
         }
         return view.background
     }
+
+    private fun ensureWatch() {
+        if (watchPosted || !showRight) return
+        watchPosted = true
+        Choreographer.getInstance().postFrameCallback(spinWatch)
+    }
+
+    private fun stopSpin() {
+        watchPosted = false
+        Choreographer.getInstance().removeFrameCallback(spinWatch)
+        if (spin.isStarted) spin.cancel()
+        loggedPlaying = null
+    }
+
+    /**
+     * True while frames are arriving. No registered player means we cannot tell,
+     * and the circle keeps turning rather than freezing.
+     */
+    private fun videoPlaying(now: Long): Boolean {
+        val stamp = DouyinPlayerTextureHooks.currentFrameStamp() ?: return true
+        if (stamp != videoStamp) {
+            videoStamp = stamp
+            videoStampAt = now
+            return true
+        }
+        if (videoStampAt == 0L) videoStampAt = now
+        return now - videoStampAt < PAUSE_HOLD_MS
+    }
+
+    private fun wrap(degrees: Float): Float {
+        val mod = degrees % 360f
+        return if (mod < 0f) mod + 360f else mod
+    }
+
+    /**
+     * Transparent, still VISIBLE, still in the action column. The column does not
+     * reflow: collapsing the slot (GONE or height 0) makes isShown() false and
+     * Douyin stops the animator and the cover load.
+     */
+    private fun holdCurrent(view: View) {
+        val targets = ArrayList<View>(2)
+        targets.add(view)
+        val parent = view.parent
+        if (parent is View && parent.javaClass.simpleName == "MusicCoverContainerLayout") {
+            targets.add(parent)
+        }
+        val keep = ArrayList<HeldDisc>(held.size)
+        for (item in held) {
+            if (targets.any { it === item.view }) keep.add(item) else restore(item)
+        }
+        held.clear()
+        held.addAll(keep)
+        for (target in targets) {
+            if (held.any { it.view === target }) continue
+            val listener = keepAwake(target)
+            val attach = object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) {
+                    watchDraw(v, listener, add = true)
+                }
+                override fun onViewDetachedFromWindow(v: View) {
+                    watchDraw(v, listener, add = false)
+                }
+            }
+            val item = HeldDisc(target, target.alpha, target.visibility, listener, attach)
+            forced.add(target)
+            held.add(item)
+            target.addOnAttachStateChangeListener(attach)
+            if (target.isAttachedToWindow) watchDraw(target, listener, add = true)
+            if (target.visibility == View.INVISIBLE) target.visibility = View.VISIBLE
+            if (target.alpha != 0f) target.alpha = 0f
+            Xposed.log(
+                "[OfflineGlass][BottomSlot] disc hide=alpha0 ${target.javaClass.simpleName} " +
+                    "wasVis=${item.visibility} wasAlpha=${item.alpha}",
+            )
+        }
+    }
+
+    private fun keepAwake(view: View) = ViewTreeObserver.OnPreDrawListener {
+        if (!forced.contains(view)) return@OnPreDrawListener true
+        if (view.visibility == View.INVISIBLE) view.visibility = View.VISIBLE
+        if (view.alpha != 0f) view.alpha = 0f
+        true
+    }
+
+    private fun watchDraw(view: View, listener: ViewTreeObserver.OnPreDrawListener, add: Boolean) {
+        val observer = view.viewTreeObserver
+        if (!observer.isAlive) return
+        if (add) observer.addOnPreDrawListener(listener) else observer.removeOnPreDrawListener(listener)
+    }
+
+    private fun releaseHeld() {
+        if (held.isEmpty()) return
+        val copy = ArrayList(held)
+        held.clear()
+        spinView = null
+        for (item in copy) restore(item)
+    }
+
+    private fun restore(item: HeldDisc) {
+        val view = item.view
+        forced.remove(view)
+        view.removeOnAttachStateChangeListener(item.attach)
+        watchDraw(view, item.listener, add = false)
+        if (view.alpha == 0f) view.alpha = item.alpha
+        if (view.visibility == View.VISIBLE && item.visibility == View.INVISIBLE) {
+            view.visibility = item.visibility
+        }
+    }
+
+    private class HeldDisc(
+        val view: View,
+        val alpha: Float,
+        val visibility: Int,
+        val listener: ViewTreeObserver.OnPreDrawListener,
+        val attach: View.OnAttachStateChangeListener,
+    )
 
     /**
      * A GONE disc is still in the tree. Skipping GONE nodes would miss the cover

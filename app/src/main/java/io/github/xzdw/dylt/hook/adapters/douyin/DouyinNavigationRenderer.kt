@@ -374,7 +374,7 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
         }
     }
 
-    /** A copy of the on-screen music disc. The real view stays in the feed item. */
+    /** A copy of the feed disc. The real view stays put; this circle spins on its own. */
     private fun drawDiscButton(canvas: Canvas, centreX: Float, centreY: Float, size: Float, color: Int) {
         val bitmap = DouyinBottomSlot.discArt()
         val radius = size / 2f * (1f - PUBLISH_ICON_INSET_RATIO)
