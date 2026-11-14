@@ -649,6 +649,13 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
     private var sceneAt = 0L
     private var sceneW = 0
     private var sceneH = 0
+    // Where the host sat in its window when the scene was recorded. The comment sheet
+    // slides up from below the screen; with only the 700 ms timer the scene stayed the
+    // one recorded at the start position (off screen, empty), so during the open the
+    // panel showed the sharp feed through the tint instead of frosted glass.
+    private val hostAt = IntArray(2)
+    private var sceneX = Int.MIN_VALUE
+    private var sceneY = Int.MIN_VALUE
     private val path = Path()
     private val rect = RectF()
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -700,13 +707,17 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
         runCatching {
             ensureEffect(width, height)
             val now = SystemClock.uptimeMillis()
-            if (!sceneNode.hasDisplayList() || width != sceneW || height != sceneH ||
+            host.getLocationInWindow(hostAt)
+            val moved = hostAt[0] != sceneX || hostAt[1] != sceneY
+            if (!sceneNode.hasDisplayList() || width != sceneW || height != sceneH || moved ||
                 now - sceneAt >= DouyinFeedGlassRefresh
             ) {
                 if (record(host, width, height)) {
                     sceneAt = now
                     sceneW = width
                     sceneH = height
+                    sceneX = hostAt[0]
+                    sceneY = hostAt[1]
                 }
             }
         }
