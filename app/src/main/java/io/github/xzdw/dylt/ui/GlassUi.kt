@@ -1774,6 +1774,16 @@ private fun GlassSettingsSubpage(
                     GlassPublishIconPreference(config.publishIcon, backdrop, palette) {
                         actions.setGlassConfig(config.copy(publishIcon = it))
                     }
+                    GlassBottomSlotChoice(config.bottomSlot, backdrop, palette) {
+                        actions.setGlassConfig(config.copy(bottomSlot = it))
+                    }
+                    GlassSwitchRow(
+                        "隐藏拍同款",
+                        "去掉音乐转盘上的拍同款气泡，转盘本身还能点",
+                        config.hideShootSame,
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(hideShootSame = it)) }
                     GlassSlider(
                         "底栏高度\n45–55 dp",
                         config.barHeight,
@@ -2428,6 +2438,54 @@ private fun GlassStyleChoice(
                 ) {
                     Text(
                         option.label,
+                        color = if (isSelected) palette.content else palette.secondary,
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 右下角按钮: publish stays the default. The other two choices move that control into
+ * the leading circle. The music disc is drawn as a copy; it is not taken out of the feed.
+ */
+@Composable
+private fun GlassBottomSlotChoice(
+    selected: String,
+    backdrop: Backdrop,
+    palette: GlassPalette,
+    onSelected: (String) -> Unit,
+) {
+    val options = listOf(
+        GlassConfig.BOTTOM_SLOT_PUBLISH to "加号",
+        GlassConfig.BOTTOM_SLOT_MUSIC to "音乐转盘",
+        GlassConfig.BOTTOM_SLOT_ME to "我",
+    )
+    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Text("右下角按钮", color = palette.content, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "选中的放在底栏右侧圆钮，加号不在右侧时改到左侧圆钮。音乐转盘是转盘的点击代理，原控件仍留在视频里。默认加号。",
+            color = palette.secondary,
+            fontSize = 12.sp,
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { (value, label) ->
+                val isSelected = value == selected
+                LiquidButton(
+                    onClick = { if (!isSelected) onSelected(value) },
+                    backdrop = backdrop,
+                    modifier = Modifier.weight(1f),
+                    surfaceColor = if (isSelected) palette.accent.copy(alpha = 0.30f) else Color.Unspecified,
+                ) {
+                    Text(
+                        label,
                         color = if (isSelected) palette.content else palette.secondary,
                         fontSize = 13.sp,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,

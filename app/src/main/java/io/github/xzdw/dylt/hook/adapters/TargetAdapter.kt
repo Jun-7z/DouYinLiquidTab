@@ -90,6 +90,14 @@ internal interface TargetAdapter {
      */
     val navigationActionReserveGapDp: Float get() = 0f
     /**
+     * Gap in dp before the pill for a leading circular action. Zero keeps the capsule
+     * flush with the host's left edge. The bottom bar reads this live, so a settings
+     * change can open the circle without reinstalling the host.
+     */
+    val navigationActionLeftGapDp: Float get() = 0f
+    /** Drop a native slot from the pill without removing its click target. */
+    fun navigationEntrySuppressed(index: Int): Boolean = false
+    /**
      * Opt-in for a second glass host pinned to the top edge of the same content frame.
      * It is a literal copy of the bottom host — its own capture, blur, refraction and
      * panel path — so the installer only has to place it. Off by default.

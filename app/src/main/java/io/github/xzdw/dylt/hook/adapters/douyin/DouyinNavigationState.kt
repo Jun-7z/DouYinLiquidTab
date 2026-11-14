@@ -267,11 +267,22 @@ internal class DouyinNavigationState(private val context: Context) : AppNavigati
      * + button dead. The row itself is the navigation source; slot 2 is the publish action.
      */
     override fun performActionTap(host: View, source: ViewGroup?, leading: Boolean): Boolean {
-        if (leading) return false
         val row = source ?: return false
-        val cell = publishCell(row) ?: return false
+        // The leading circle is the plus after it has left the right-hand slot.
+        if (leading || DouyinBottomSlot.mode == DouyinBottomSlot.PUBLISH) {
+            return clickCell(publishCell(row))
+        }
+        return when (DouyinBottomSlot.mode) {
+            DouyinBottomSlot.MUSIC -> DouyinBottomSlot.clickDisc()
+            DouyinBottomSlot.ME -> clickCell(row.getChildAt(DouyinBottomSlot.ME_CELL_INDEX))
+            else -> clickCell(publishCell(row))
+        }
+    }
+
+    private fun clickCell(cell: View?): Boolean {
+        cell ?: return false
         if (runCatching { cell.performClick() }.getOrDefault(false)) return true
-        if (!cell.isShown || cell.width <= 0 || cell.height <= 0) return false
+        if (cell.width <= 0 || cell.height <= 0) return false
         val now = SystemClock.uptimeMillis()
         val x = cell.width / 2f
         val y = cell.height / 2f
@@ -339,6 +350,9 @@ internal class DouyinNavigationState(private val context: Context) : AppNavigati
         barHeightPx: Int,
         surfaceColor: () -> Int,
     ) {
+        (host as? io.github.xzdw.dylt.hook.GlassHostLayout)?.let { layout ->
+            DouyinBottomSlot.refresh(layout.rootView, layout.config)
+        }
         pageController.update(host, barHeightPx)
     }
 

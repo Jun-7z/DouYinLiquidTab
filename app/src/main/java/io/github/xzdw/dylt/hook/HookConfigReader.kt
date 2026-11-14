@@ -615,6 +615,12 @@ object HookConfigReader {
         commentInputTintAlpha = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_INPUT_TINT, defaults.commentInputTintAlpha)
         } else defaults.commentInputTintAlpha,
+        bottomSlot = if (prefix == GLOBAL) {
+            p.getString(GLOBAL + ConfigContract.KEY_BOTTOM_SLOT, defaults.bottomSlot) ?: defaults.bottomSlot
+        } else defaults.bottomSlot,
+        hideShootSame = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_HIDE_SHOOT_SAME, defaults.hideShootSame)
+        } else defaults.hideShootSame,
     ).normalized()
 
     private const val QQ_PACKAGE = "com.tencent.mobileqq"

@@ -4724,14 +4724,21 @@ internal fun syncOpticalVisibilityCompanions() {
         }
 
     /** Left-hand companion of [navigationActionGapPx]; zero keeps a plain capsule edge. */
-    private fun navigationActionLeftGapPx(): Float =
-        if (topBar && config.topBarHideLeadingAction) {
-            // 顶栏两侧按钮: the leading key is gone, so the capsule starts at the host edge and
-            // the remaining cluster is centred by the host's own TOP|CENTER_HORIZONTAL gravity.
-            0f
-        } else {
-            (actionReserveDp?.first ?: 0f) * density * topBarScale()
+    private fun navigationActionLeftGapPx(): Float {
+        if (topBar) {
+            if (config.topBarHideLeadingAction) {
+                // 顶栏两侧按钮: the leading key is gone, so the capsule starts at the host edge and
+                // the remaining cluster is centred by the host's own TOP|CENTER_HORIZONTAL gravity.
+                return 0f
+            }
+            return (actionReserveDp?.first ?: 0f) * density * topBarScale()
         }
+        // 去除发布按钮 collapses both circles. The leading one is the displaced plus.
+        if (!config.showPostButton) return 0f
+        val adapterGap = targetAdapter?.navigationActionLeftGapDp ?: 0f
+        if (adapterGap > 0f) return adapterGap * density
+        return (actionReserveDp?.first ?: 0f) * density
+    }
 
     /**
      * 椤舵爮鍙傛暟: the top cluster's own multiplier.
@@ -6060,6 +6067,9 @@ internal fun syncOpticalVisibilityCompanions() {
             // sizes the panel as the full cluster), which is what makes the capsule fill it.
             old.showPostButton != config.showPostButton ||
 
+            // 右下角按钮 opens a leading circle when the plus leaves the right-hand slot.
+            old.bottomSlot != config.bottomSlot ||
+
             // 顶栏两侧按钮: a hidden corner key removes a whole shape from the panel path (the
             // circle) and moves the capsule's edge, so the path must be rebuilt.
             old.topBarHideLeadingAction != config.topBarHideLeadingAction ||
@@ -7206,7 +7216,8 @@ internal fun syncOpticalVisibilityCompanions() {
         // tab —and shrink the copy, whose width is derived from the visible slot count.
         !topBar && index in 0 until slotCount &&
 
-            config.hiddenMask and (1 shl index) != 0
+            (config.hiddenMask and (1 shl index) != 0 ||
+                targetAdapter?.navigationEntrySuppressed(index) == true)
 
 
 

@@ -67,6 +67,10 @@ internal object DouyinAdapter : TargetAdapter {
      * 12dp group gap the reference bottom bar uses between its capsule and its button.
      */
     override val navigationActionReserveGapDp = 12f
+    override val navigationActionLeftGapDp: Float
+        get() = DouyinBottomSlot.leftGapDp()
+    override fun navigationEntrySuppressed(index: Int): Boolean =
+        DouyinBottomSlot.suppressMeTab() && index == DouyinBottomSlot.ME_CELL_INDEX
     /**
      * The module renders a second glass host at the top edge of the same content frame:
      * a literal copy of the bottom bar's host. Its content is Douyin's own title-bar tab

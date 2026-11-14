@@ -8,6 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import io.github.xzdw.dylt.hook.adapters.TargetAdapterRegistry
+import io.github.xzdw.dylt.hook.adapters.douyin.DouyinTopBarFinder
 import io.github.xzdw.dylt.hookx.MethodHook
 import io.github.xzdw.dylt.hookx.Xposed
 import io.github.xzdw.dylt.targets.TargetSpec
@@ -139,6 +140,10 @@ private class ScannerSession(activity: Activity, private val spec: TargetSpec) {
     private var installed = false
     private var lastScan = 0L
     private var listener: ViewTreeObserver.OnGlobalLayoutListener? = null
+    private var earlyDraw: ViewTreeObserver.OnPreDrawListener? = null
+    private var earlyInstallPosted = false
+    private var topMasked = false
+    private val tinted = WeakHashMap<View, Boolean>()
 
     fun scheduleScans() {
         val activity = activityRef.get() ?: return
@@ -153,6 +158,69 @@ private class ScannerSession(activity: Activity, private val spec: TargetSpec) {
                 if (!installed && SystemClock.uptimeMillis() - lastScan > 300L) scan()
             }.also { root.viewTreeObserver.addOnGlobalLayoutListener(it) }
         }
+        // The delayed scans run after the first traversal, so the native bar draws once
+        // before the host exists. A pre-draw listener paints a flat tint over that bar
+        // before the same frame's draw, then installs the glass for the following frame.
+        if (spec.key == "douyin" && earlyDraw == null && root.viewTreeObserver.isAlive) {
+            earlyDraw = ViewTreeObserver.OnPreDrawListener {
+                maskNativeBarBeforeDraw()
+                true
+            }.also { root.viewTreeObserver.addOnPreDrawListener(it) }
+        }
+    }
+
+    private fun maskNativeBarBeforeDraw() {
+        if (installed) {
+            removeEarlyDraw()
+            return
+        }
+        val activity = activityRef.get() ?: return
+        val root = activity.window?.decorView ?: return
+        val config = HookConfigReader.read(activity, spec.packageName)
+        if (!config.enabled) return
+        if (!topMasked && config.topBarLiquidGlass) {
+            DouyinTopBarFinder.find(root)?.let { row ->
+                DouyinTopBarFinder.hideNativeTitleBar(row)
+                topMasked = true
+                Xposed.log("[OfflineGlass][ColdStart] native title bar hidden before first glass frame")
+            }
+        }
+        val candidate = NavigationFinder.find(root, spec) ?: return
+        val nav = candidate.view
+        if (!tinted.containsKey(nav)) {
+            tinted[nav] = true
+            nav.setBackgroundColor(0xF0141416.toInt())
+            for (index in 0 until nav.childCount) nav.getChildAt(index).alpha = 0f
+            Xposed.log(
+                "[OfflineGlass][ColdStart] static tint on native bar before glass " +
+                    "${nav.width}x${nav.height}",
+            )
+        }
+        if (earlyInstallPosted) return
+        earlyInstallPosted = true
+        nav.post {
+            earlyInstallPosted = false
+            if (installed) {
+                removeEarlyDraw()
+                return@post
+            }
+            val ready = GlassInstaller.install(activity, nav, candidate.slotCount, config, spec)
+            if (ready) {
+                installed = true
+                Xposed.log("[OfflineGlass][ColdStart] glass installed on the frame after the tint")
+                removeEarlyDraw()
+            } else {
+                for (index in 0 until nav.childCount) nav.getChildAt(index).alpha = 1f
+                nav.background = null
+                tinted.remove(nav)
+            }
+        }
+    }
+
+    private fun removeEarlyDraw() {
+        val root = activityRef.get()?.window?.decorView ?: return
+        earlyDraw?.let { if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(it) }
+        earlyDraw = null
     }
 
     private fun scan() {
@@ -175,5 +243,6 @@ private class ScannerSession(activity: Activity, private val spec: TargetSpec) {
         val root = activityRef.get()?.window?.decorView ?: return
         listener?.let { if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnGlobalLayoutListener(it) }
         listener = null
+        removeEarlyDraw()
     }
 }

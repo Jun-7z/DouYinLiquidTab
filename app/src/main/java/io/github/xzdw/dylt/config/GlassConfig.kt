@@ -188,6 +188,15 @@ data class GlassConfig(
      * sheet's default fill for the capsule.
      */
     val commentInputTintAlpha: Float = 0.72f,
+    /**
+     * Right-hand circle of the bottom bar. [BOTTOM_SLOT_PUBLISH] is today's layout.
+     * [BOTTOM_SLOT_MUSIC] draws a live copy of the video's music disc there.
+     * [BOTTOM_SLOT_ME] draws the profile tab there. The displaced plus moves to the
+     * leading circle. The disc itself is never reparented.
+     */
+    val bottomSlot: String = BOTTOM_SLOT_PUBLISH,
+    /** 隐藏拍同款. The overlay on the music disc goes away; the disc still receives clicks. */
+    val hideShootSame: Boolean = true,
 ) {
     /** 仅文字: the bar draws labels alone, vertically centred where the glyph used to sit. */
     val textOnly: Boolean get() = bottomBarStyle == BOTTOM_BAR_STYLE_TEXT_ONLY
@@ -265,6 +274,10 @@ data class GlassConfig(
         commentBlurRadius = commentBlurRadius.coerceIn(0f, 40f),
         commentTintAlpha = commentTintAlpha.coerceIn(0f, 1f),
         commentInputTintAlpha = commentInputTintAlpha.coerceIn(0f, 1f),
+        bottomSlot = when (bottomSlot) {
+            BOTTOM_SLOT_MUSIC, BOTTOM_SLOT_ME -> bottomSlot
+            else -> BOTTOM_SLOT_PUBLISH
+        },
         commentLightTint = commentLightTint or Color.BLACK,
         commentDarkTint = commentDarkTint or Color.BLACK,
         commentCornerRadiusDp = commentCornerRadiusDp.coerceIn(0f, 36f),
@@ -339,6 +352,8 @@ data class GlassConfig(
         putFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
         putBoolean(ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
         putFloat(ConfigContract.KEY_COMMENT_INPUT_TINT, value.commentInputTintAlpha)
+        putString(ConfigContract.KEY_BOTTOM_SLOT, value.bottomSlot)
+        putBoolean(ConfigContract.KEY_HIDE_SHOOT_SAME, value.hideShootSame)
     }
 
     companion object {
@@ -356,6 +371,10 @@ data class GlassConfig(
          * renderer shrinks an over-long name to its slot as a second net.
          */
         const val ENTRY_LABEL_MAX_LENGTH = 6
+
+        const val BOTTOM_SLOT_PUBLISH = "publish"
+        const val BOTTOM_SLOT_MUSIC = "music"
+        const val BOTTOM_SLOT_ME = "me"
 
         /**
          * 顶栏参数: the band the top copy's height clamp has always used. The clamp is not a
@@ -533,6 +552,8 @@ data class GlassConfig(
                 commentHighlight = bundle.getFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, 0.35f),
                 commentInputGlass = bundle.getBoolean(ConfigContract.KEY_COMMENT_INPUT, true),
                 commentInputTintAlpha = bundle.getFloat(ConfigContract.KEY_COMMENT_INPUT_TINT, 0.72f),
+                bottomSlot = bundle.getString(ConfigContract.KEY_BOTTOM_SLOT) ?: BOTTOM_SLOT_PUBLISH,
+                hideShootSame = bundle.getBoolean(ConfigContract.KEY_HIDE_SHOOT_SAME, true),
             ).normalized()
         }
     }

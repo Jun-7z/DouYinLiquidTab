@@ -341,10 +341,59 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
             }
         }
 
-        // The publish button belongs to the row itself, never to the selection ink.
+        // The right-hand circle is the chosen slot. The plus, once it leaves that circle,
+        // is the leading circle. Neither belongs to the selection ink.
         if (drawPublish && showPublish) {
-            drawPublishButton(canvas, width - buttonSize / 2f, height / 2f, buttonSize, density, customPublishIcon(frame), glyphColor)
+            val centreX = width - buttonSize / 2f
+            val centreY = height / 2f
+            when (DouyinBottomSlot.mode) {
+                DouyinBottomSlot.MUSIC -> drawDiscButton(canvas, centreX, centreY, buttonSize, glyphColor)
+                DouyinBottomSlot.ME -> drawMeButton(canvas, centreX, centreY, buttonSize, glyphColor)
+                else -> drawPublishButton(
+                    canvas, centreX, centreY, buttonSize, density, customPublishIcon(frame), glyphColor,
+                )
+            }
         }
+        if (drawPublish && frame.leftActionReservePx > 0f) {
+            val leftSize = height.toFloat()
+            drawPublishButton(
+                canvas, leftSize / 2f, height / 2f, leftSize, density, customPublishIcon(frame), glyphColor,
+            )
+        }
+    }
+
+    /** Profile glyph, centred in the right-hand circle the way the plus normally is. */
+    private fun drawMeButton(canvas: Canvas, centreX: Float, centreY: Float, size: Float, color: Int) {
+        val bounds = glyphBounds[3]
+        val glyph = size * GLYPH_TO_BUTTON_RATIO
+        val scale = glyph / bounds.height().coerceAtLeast(1f)
+        val saved = canvas.save()
+        canvas.translate(centreX - bounds.centerX() * scale, centreY - bounds.centerY() * scale)
+        canvas.scale(scale, scale)
+        iconPaint.color = color
+        canvas.drawPath(tabIcon(3), iconPaint)
+        canvas.restoreToCount(saved)
+    }
+
+    /** A copy of the on-screen music disc. The real view stays in the feed item. */
+    private fun drawDiscButton(canvas: Canvas, centreX: Float, centreY: Float, size: Float, color: Int) {
+        val bitmap = DouyinBottomSlot.discArt()
+        val radius = size / 2f * (1f - PUBLISH_ICON_INSET_RATIO)
+        if (bitmap == null) {
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = size * 0.06f
+            paint.color = color
+            canvas.drawCircle(centreX, centreY, radius, paint)
+            return
+        }
+        publishClipPath.reset()
+        publishClipPath.addCircle(centreX, centreY, radius, Path.Direction.CW)
+        publishIconDest.set(centreX - radius, centreY - radius, centreX + radius, centreY + radius)
+        val saved = canvas.save()
+        canvas.clipPath(publishClipPath)
+        canvas.rotate(DouyinBottomSlot.discRotation(), centreX, centreY)
+        canvas.drawBitmap(bitmap, null, publishIconDest, publishIconPaint)
+        canvas.restoreToCount(saved)
     }
 
     /**

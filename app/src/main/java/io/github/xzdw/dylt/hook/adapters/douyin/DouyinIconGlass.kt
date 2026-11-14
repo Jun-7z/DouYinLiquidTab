@@ -266,6 +266,7 @@ private class GlyphGlassDrawable(private val icon: View) : Drawable() {
     private var effect: RenderEffect? = null
     private val glyphNode = RenderNode("dylt-icon-glyph")
     private var loggedDraw = false
+    private var lastPumpAt = 0L
     private var rim: Bitmap? = null
     private var rimKey = 0
     private var observer: ViewTreeObserver? = null
@@ -308,7 +309,7 @@ private class GlyphGlassDrawable(private val icon: View) : Drawable() {
     override fun draw(canvas: Canvas) {
         if (disabled || capturing) return
         val view = icon
-        if (view.width <= 0 || view.height <= 0) return
+        if (view.width <= 0 || view.height <= 0 || !view.isShown) return
         if (bounds.width() != view.width || bounds.height() != view.height) {
             setBounds(0, 0, view.width, view.height)
         }
@@ -326,7 +327,14 @@ private class GlyphGlassDrawable(private val icon: View) : Drawable() {
             // painted over it and only wins where it actually covers the glyph, so a shader
             // that comes out empty cannot blank the icon.
             drawFallback(canvas, mask, offset[0], offset[1], scene)
-            if (view.isShown) view.postInvalidateOnAnimation()
+            // The icon used to invalidate itself on every frame, so six glyphs re-blurred
+            // at the display rate even while the video frame had not been sampled again.
+            // 10fps is enough for a glyph-sized blur and stops when the icon is off screen.
+            val now = SystemClock.uptimeMillis()
+            if (view.isShown && now - lastPumpAt >= 100L) {
+                lastPumpAt = now
+                view.postInvalidateOnAnimation()
+            }
         } catch (error: Throwable) {
             if (!loggedDraw) {
                 loggedDraw = true

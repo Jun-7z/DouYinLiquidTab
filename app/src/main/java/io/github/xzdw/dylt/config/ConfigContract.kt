@@ -151,6 +151,15 @@ object ConfigContract {
     /** 输入框不透明度: capsule and icon-circle fill, independent of the sheet. Default 72%. */
     const val KEY_COMMENT_INPUT_TINT = "comment_input_tint"
 
+    /**
+     * Which control occupies the bottom-right circle: "publish" (default), "music", or "me".
+     * The control that leaves that circle moves to the leading circle.
+     */
+    const val KEY_BOTTOM_SLOT = "bottom_slot"
+
+    /** Hide the 拍同款 bubble drawn over the music disc. Default on. The disc stays clickable. */
+    const val KEY_HIDE_SHOOT_SAME = "hide_shoot_same"
+
     const val KEY_SYSTEM_DARK = "system_dark"
     const val KEY_MI_MARKET_TAB_ENABLED = "mi_market_tab_enabled"
 }

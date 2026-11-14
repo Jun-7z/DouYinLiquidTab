@@ -55,6 +55,8 @@ import kotlin.math.roundToInt
 internal object DouyinFeedGlass {
     private const val WALK_BUDGET = 2_800
     private const val RESCAN_MS = 240L
+    /** Feed scroll must not walk the tree every frame just because the sheet is closed. */
+    private const val IDLE_SCAN_MS = 800L
 
     private const val COLUMN_CLASS = "FeedRightScaleView"
     private const val SHEET_CLASS = "CommentNestedLayout"
@@ -105,6 +107,11 @@ internal object DouyinFeedGlass {
     private var savedListClip = true
     /** Views whose background was cleared, so the log names each of them once. */
     private val clearedViews = WeakHashMap<View, String>()
+    private var clearedFor: View? = null
+    private var clearedForSize = 0
+    private var inputBound: View? = null
+    private var inputSig = 0
+    private val scrollWatched = WeakHashMap<View, Boolean>()
 
     fun update(root: ViewGroup, config: GlassConfig?) {
         if (config == null || (!config.actionGlassEnabled && !config.commentGlassEnabled)) {
@@ -116,12 +123,15 @@ internal object DouyinFeedGlass {
         latestRoot = WeakReference(root)
         if (config.commentGlassEnabled) ensureEarlyHook(root)
         val now = SystemClock.uptimeMillis()
-        // While the sheet or the input bar is not bound yet, look on every pre-draw.
-        // The 240ms rescan was long enough for the panel to draw transparent first.
-        val sheetMissing = sheetRef?.get().let { it == null || !it.isShown || it.height <= 0 }
-        val inputMissing = config.commentInputGlass &&
-            inputRef?.get().let { it == null || !it.isShown || it.height <= 0 }
-        if ((config.commentGlassEnabled && (sheetMissing || inputMissing)) || now - lastScanAt >= RESCAN_MS) {
+        // The constructor pre-draw hooks bind a sheet the moment it is on screen. Scanning
+        // the whole tree on every feed frame — which is what "the sheet is missing" used
+        // to mean, including while it was simply closed — redrew nothing and warmed the
+        // phone. Fast scans stay only for a sheet that is already visible and not glassed.
+        val shownSheet = sheetRef?.get()?.takeIf { it.isAttachedToWindow && it.isShown && it.height > 0 }
+        val unbound = config.commentGlassEnabled && shownSheet != null &&
+            sheetBackdrop?.hostView() !== shownSheet
+        val interval = if (config.actionGlassEnabled) RESCAN_MS else IDLE_SCAN_MS
+        if (unbound || now - lastScanAt >= interval) {
             lastScanAt = now
             scan(root)
         }
@@ -380,7 +390,14 @@ internal object DouyinFeedGlass {
             ?.let { composerField(it) }
         val pill = field?.let { resolvePill(it) }
         val dock = pill?.let { resolveDock(it, sheet) }
-        clearCoveringBackgrounds(sheet, pill, dock)
+        val sheetSize = sheet.width + sheet.height
+        if (clearedFor !== sheet || kotlin.math.abs(sheetSize - clearedForSize) > sheet.width / 4) {
+            // Walking every ancestor on each pre-draw was a full-tree pass while the
+            // sheet was open. The fills stay cleared until the sheet is replaced.
+            clearCoveringBackgrounds(sheet, pill, dock)
+            clearedFor = sheet
+            clearedForSize = sheetSize
+        }
         if (!config.commentInputGlass || field == null || pill == null) {
             val held = inputRef?.get()
             if (!config.commentInputGlass || held == null || !held.isAttachedToWindow || !held.isShown) {
@@ -406,6 +423,12 @@ internal object DouyinFeedGlass {
         config: GlassConfig,
         dark: Boolean,
     ) {
+        val sig = pill.width + pill.height * 17 + (dock?.height ?: 0) * 131 +
+            config.commentInputTintAlpha.toBits() + config.commentBlurRadius.toBits() * 3 +
+            (if (dark) 1 else 0)
+        if (inputBound === pill && inputSig == sig && pillBackdrop != null) return
+        inputBound = pill
+        inputSig = sig
         val density = pill.resources.displayMetrics.density
         val blurPx = config.commentBlurRadius * density
         val color = tint(if (dark) config.commentDarkTint else config.commentLightTint, config.commentInputTintAlpha)
@@ -877,6 +900,7 @@ internal object DouyinFeedGlass {
         list.clipToPadding = false
         val parent = dock.parent as? ViewGroup
         if (parent != null && parent.indexOfChild(dock) != parent.childCount - 1) dock.bringToFront()
+        watchListScroll(list)
         if (!loggedFloat && dock.height > 0) {
             loggedFloat = true
             val top = (dock.layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin
@@ -1088,8 +1112,40 @@ internal object DouyinFeedGlass {
         if (host.background !== backdrop) {
             if (host.background !is SurfaceBackdrop) rememberBackground(host)
             host.background = backdrop
+            host.invalidate()
         }
-        host.postInvalidateOnAnimation()
+    }
+
+    /**
+     * The pill and the icon circles re-record only while the comment list is moving.
+     * An idle sheet used to invalidate itself on every frame. The listener does not
+     * invalidate anything until the scroll offset actually changes, so a still list
+     * costs a compare and nothing else.
+     */
+    private fun watchListScroll(list: View) {
+        if (scrollWatched.containsKey(list)) return
+        if (!list.javaClass.name.contains("Recycler")) return
+        scrollWatched[list] = true
+        val offsetOf = list.javaClass.methods.firstOrNull {
+            it.name == "computeVerticalScrollOffset" && it.parameterTypes.isEmpty()
+        }
+        val offset = intArrayOf(Int.MIN_VALUE)
+        val observer = list.viewTreeObserver
+        if (!observer.isAlive) return
+        observer.addOnPreDrawListener {
+            val current = runCatching { offsetOf?.invoke(list) as? Int }.getOrNull() ?: list.scrollY
+            if (current != offset[0]) {
+                offset[0] = current
+                pillBackdrop?.poke()
+                pillBackdrop?.hostView()?.invalidate()
+                for (backdrop in iconBackdrops.values) {
+                    backdrop.poke()
+                    backdrop.hostView()?.invalidate()
+                }
+            }
+            true
+        }
+        Xposed.log("[OfflineGlass][CommentGlass] scroll-blur ${list.javaClass.name}")
     }
 
     private fun rememberBackground(view: View) {
@@ -1109,6 +1165,8 @@ internal object DouyinFeedGlass {
     private fun releaseSheet() {
         sheetBackdrop?.let { restore(it) }
         sheetBackdrop = null
+        clearedFor = null
+        clearedForSize = 0
         releaseInput()
         // Covering backgrounds cleared for the sheet are restored with everyone else.
         restoreAll()
@@ -1122,6 +1180,8 @@ internal object DouyinFeedGlass {
         pillBackdrop?.let { restore(it) }
         pillBackdrop = null
         releaseDockGlass()
+        inputBound = null
+        inputSig = 0
         inputRef = null
         loggedInput = false
         loggedIconNone = false
@@ -1185,8 +1245,17 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
     private var inset = 0f
     private var offsetY = 0f
     private var scale = 1f
-    /** Re-record every draw. The input dock blurs comments scrolling behind it. */
+    /** Re-record while [dirty], not on a self-sustained frame loop. */
     private var live = false
+    private var dirty = true
+    private var refreshPosted = false
+
+    fun hostView(): View? = host
+
+    /** The comment list moved. The next draw re-records; idle frames do not. */
+    fun poke() {
+        dirty = true
+    }
 
     private val sceneNode = RenderNode("dylt-feed-glass")
     private val lens = runCatching { RuntimeShader(GlassHostLayout.ROUNDED_RECT_REFRACTION_SHADER) }.getOrNull()
@@ -1221,6 +1290,10 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
         bottomCornerPx: Float = cornerPx,
         live: Boolean = false,
     ) {
+        val changed = this.host !== host || this.blurPx != blurPx || this.cornerPx != cornerPx ||
+            this.bottomCornerPx != bottomCornerPx || this.tint != tint || this.outline != outline ||
+            this.highlight != highlight || this.circles != circles || this.inset != inset ||
+            this.offsetY != offsetY || this.scale != scale || this.live != live
         this.host = host
         this.blurPx = blurPx
         this.cornerPx = cornerPx
@@ -1233,6 +1306,8 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
         this.offsetY = offsetY
         this.scale = scale
         this.live = live
+        if (!changed) return
+        dirty = true
         invalidateSelf()
     }
 
@@ -1257,10 +1332,14 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
             val now = SystemClock.uptimeMillis()
             host.getLocationInWindow(hostAt)
             val moved = hostAt[0] != sceneX || hostAt[1] != sceneY
-            if (live || !sceneNode.hasDisplayList() || width != sceneW || height != sceneH || moved ||
-                now - sceneAt >= DouyinFeedGlassRefresh
-            ) {
+            val stale = !live && now - sceneAt >= DouyinFeedGlassRefresh
+            // Live glass (the input capsule and its icon circles) re-records when the list
+            // scrolls or the view moves. It does not schedule the next frame itself.
+            // The sheet is not live: one delayed invalidate keeps the 700ms refresh without
+            // a 60fps loop while the panel sits still.
+            if (dirty || !sceneNode.hasDisplayList() || width != sceneW || height != sceneH || moved || stale) {
                 if (record(host, width, height)) {
+                    dirty = false
                     sceneAt = now
                     sceneW = width
                     sceneH = height
@@ -1296,7 +1375,13 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
             }
         }
         canvas.restoreToCount(save)
-        if (host.isShown) host.postInvalidateOnAnimation()
+        if (!live && host.isShown && !refreshPosted) {
+            refreshPosted = true
+            host.postDelayed({
+                refreshPosted = false
+                if (this.host === host && host.isShown) host.invalidate()
+            }, DouyinFeedGlassRefresh)
+        }
     }
 
     private fun clipShape(width: Float, height: Float) {
