@@ -183,10 +183,11 @@ data class GlassConfig(
     val commentHighlight: Float = 0.35f,
     val commentInputGlass: Boolean = true,
     /**
-     * 输入框悬浮: the comment list runs to the bottom of the sheet, under the input dock,
-     * so rows slide behind the frosted bar. Off puts the dock back in its own row.
+     * 输入框不透明度: fill of the input capsule and the icon-button circles.
+     * Independent of [commentTintAlpha]. 0.72 matches the 1.7.11 look, which used the
+     * sheet's default fill for the capsule.
      */
-    val commentInputFloat: Boolean = true,
+    val commentInputTintAlpha: Float = 0.72f,
 ) {
     /** 仅文字: the bar draws labels alone, vertically centred where the glyph used to sit. */
     val textOnly: Boolean get() = bottomBarStyle == BOTTOM_BAR_STYLE_TEXT_ONLY
@@ -263,6 +264,7 @@ data class GlassConfig(
         actionScale = actionScale.coerceIn(0.8f, 1.3f),
         commentBlurRadius = commentBlurRadius.coerceIn(0f, 40f),
         commentTintAlpha = commentTintAlpha.coerceIn(0f, 1f),
+        commentInputTintAlpha = commentInputTintAlpha.coerceIn(0f, 1f),
         commentLightTint = commentLightTint or Color.BLACK,
         commentDarkTint = commentDarkTint or Color.BLACK,
         commentCornerRadiusDp = commentCornerRadiusDp.coerceIn(0f, 36f),
@@ -336,7 +338,7 @@ data class GlassConfig(
         putBoolean(ConfigContract.KEY_COMMENT_OUTLINE, value.commentOutlineEnabled)
         putFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
         putBoolean(ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
-        putBoolean(ConfigContract.KEY_COMMENT_INPUT_FLOAT, value.commentInputFloat)
+        putFloat(ConfigContract.KEY_COMMENT_INPUT_TINT, value.commentInputTintAlpha)
     }
 
     companion object {
@@ -530,7 +532,7 @@ data class GlassConfig(
                 commentOutlineEnabled = bundle.getBoolean(ConfigContract.KEY_COMMENT_OUTLINE, true),
                 commentHighlight = bundle.getFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, 0.35f),
                 commentInputGlass = bundle.getBoolean(ConfigContract.KEY_COMMENT_INPUT, true),
-                commentInputFloat = bundle.getBoolean(ConfigContract.KEY_COMMENT_INPUT_FLOAT, true),
+                commentInputTintAlpha = bundle.getFloat(ConfigContract.KEY_COMMENT_INPUT_TINT, 0.72f),
             ).normalized()
         }
     }

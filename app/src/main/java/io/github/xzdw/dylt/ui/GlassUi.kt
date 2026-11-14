@@ -1943,19 +1943,11 @@ private fun GlassSettingsSubpage(
                     ) { actions.setGlassConfig(config.copy(commentGlassEnabled = it)) }
                     GlassSwitchRow(
                         "输入栏也用玻璃",
-                        if (config.commentInputGlass) "胶囊输入框和底部条都用评论区玻璃" else "输入条保持原样",
+                        if (config.commentInputGlass) "只留胶囊和旁边的小圆，底条消失" else "输入条保持原样",
                         config.commentInputGlass,
                         backdrop,
                         palette,
                     ) { actions.setGlassConfig(config.copy(commentInputGlass = it)) }
-                    GlassSwitchRow(
-                        "输入框悬浮",
-                        if (config.commentInputFloat) "底条消失，只留胶囊，评论从胶囊下面滑过"
-                        else "输入条单独占一行，底条保持磨砂",
-                        config.commentInputFloat,
-                        backdrop,
-                        palette,
-                    ) { actions.setGlassConfig(config.copy(commentInputFloat = it)) }
                     GlassSlider(
                         "模糊半径\n0–40",
                         config.commentBlurRadius,
@@ -1972,6 +1964,14 @@ private fun GlassSettingsSubpage(
                         backdrop,
                         palette,
                     ) { actions.setGlassConfig(config.copy(commentTintAlpha = it)) }
+                    GlassSlider(
+                        "输入框不透明度\n0%–100%",
+                        config.commentInputTintAlpha,
+                        0f..1f,
+                        { "${(it * 100).toInt()}%" },
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(commentInputTintAlpha = it)) }
                     CommentTintChoice(
                         title = "浅色底色",
                         colors = GlassConfig.COMMENT_LIGHT_CHOICES,

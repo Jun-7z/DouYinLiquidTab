@@ -37,11 +37,11 @@ import kotlin.math.roundToInt
  * On 41.1 that layout is full screen, so the glass is applied to the panel child rather
  * than the transparent dismiss area. The input pill (`CommentMentionEditText`, or the
  * wrapper `CommentInputFragment.onViewCreated` paints via `setBackgroundResource`) stays
- * a capsule and is itself frosted glass. The full-width strip behind it
- * (`CommentBottomAreaLayout`, `InterceptTouchFrameLayout`, `mExternalInputContainer`)
- * gets the same glass as the sheet, unless 输入框悬浮 is on: then that strip and every
- * ancestor between the capsule and the list lose their background, foreground and
- * shadow, and only the capsule plus the image / @ / emoji icons stay frosted.
+ * a capsule and is itself frosted glass. The input always floats: the full-width strip
+ * behind it (`CommentBottomAreaLayout`, `InterceptTouchFrameLayout`,
+ * `mExternalInputContainer`) and every ancestor between the capsule and the list lose
+ * their background, foreground and shadow. Only the capsule and the image / @ / emoji
+ * circles stay frosted, at their own opacity.
  * List containers such as `CommentRecyclerView` are cleared so the header and the
  * list share one surface.
  * These names are present on 41.0.0 and 41.1.0.
@@ -392,12 +392,11 @@ internal object DouyinFeedGlass {
     }
 
     /**
-     * Capsule glass on the pill. With 输入框悬浮 off, the full-width strip behind it
-     * gets the same glass as the sheet. With the switch on, that strip is invisible:
-     * its background, foreground and shadow are cleared, and so is every ancestor
-     * between the capsule and the list. The image / @ / emoji buttons keep a small
-     * circle of the same glass. Layout height is left alone so the list padding still
-     * clears the dock.
+     * Capsule glass on the pill, at [GlassConfig.commentInputTintAlpha]. The strip
+     * behind it is always invisible: its background, foreground and shadow are cleared,
+     * and so is every ancestor between the capsule and the list. The image / @ / emoji
+     * buttons keep a small circle of the same glass. Layout height is left alone so
+     * the list padding still clears the dock.
      */
     private fun openInputDock(
         field: View,
@@ -409,7 +408,7 @@ internal object DouyinFeedGlass {
     ) {
         val density = pill.resources.displayMetrics.density
         val blurPx = config.commentBlurRadius * density
-        val color = tint(if (dark) config.commentDarkTint else config.commentLightTint, config.commentTintAlpha)
+        val color = tint(if (dark) config.commentDarkTint else config.commentLightTint, config.commentInputTintAlpha)
         val corner = (pill.height.takeIf { it > 0 } ?: field.height) / 2f
         if (corner > 0f) {
             // A solid fill on the field would hide the wrapper's capsule. Leave a field
@@ -417,7 +416,6 @@ internal object DouyinFeedGlass {
             if (field !== pill && roundedCorner(field) < 8f * density) {
                 clearBackground(field, "pill-fill", force = true)
             }
-            if (dock != null && dock !== pill) clearBetween(pill, dock)
             pillBackdrop = bindGlass(
                 existing = pillBackdrop,
                 host = pill,
@@ -432,36 +430,14 @@ internal object DouyinFeedGlass {
             inputRef = WeakReference(pill)
         }
         val strip = dock?.takeIf { it !== pill && it !== sheet }
-        if (config.commentInputFloat) {
-            // The frosted strip is the lighter band comments show through. Drop it,
-            // and every container between the capsule and the list, before drawing.
-            releaseDockGlass()
-            val scope = strip ?: pill.parent as? View
-            if (scope != null) bindIconCircles(scope, pill, blurPx, color, config)
-            hideFloatStrip(pill, strip, sheet)
-        } else {
-            releaseIconCircles()
-            restoreFloatPaint()
-            if (strip != null) {
-                clearBetween(pill, strip)
-                clearDockSiblings(strip, pill, sheet)
-                dockBackdrop = bindGlass(
-                    existing = dockBackdrop,
-                    host = strip,
-                    blurPx = blurPx,
-                    cornerPx = 0f,
-                    bottomCornerPx = 0f,
-                    tint = color,
-                    outline = false,
-                    highlight = config.commentHighlight * 0.6f,
-                    live = true,
-                )
-            } else {
-                releaseDockGlass()
-            }
-        }
+        // The frosted strip is the lighter band comments show through. Drop it,
+        // and every container between the capsule and the list, before drawing.
+        releaseDockGlass()
+        val scope = strip ?: pill.parent as? View
+        if (scope != null) bindIconCircles(scope, pill, blurPx, color, config)
+        hideFloatStrip(pill, strip, sheet)
         val floatHost = strip ?: pill.takeIf { it.width >= (sheet?.width ?: it.rootView.width) * 0.9f }
-        if (floatHost != null && floatHost !== sheet) applyFloat(floatHost, sheet, config.commentInputFloat)
+        if (floatHost != null && floatHost !== sheet) applyFloat(floatHost, sheet)
         else restoreFloat()
         if (!loggedInput && corner > 0f) {
             loggedInput = true
@@ -471,8 +447,7 @@ internal object DouyinFeedGlass {
                     "${pill.width}x${pill.height} cornerPx=${corner.toInt()} " +
                     "field ${field.javaClass.name} id=${resourceId(field)} " +
                     "dock $dockName id=${strip?.let { resourceId(it) } ?: "none"} " +
-                    "${strip?.width ?: 0}x${strip?.height ?: 0} float=${config.commentInputFloat} " +
-                    "strip=${if (config.commentInputFloat) "hidden" else "frost"}",
+                    "${strip?.width ?: 0}x${strip?.height ?: 0} inputAlpha=${config.commentInputTintAlpha} strip=hidden",
             )
         }
     }
@@ -583,7 +558,7 @@ internal object DouyinFeedGlass {
     /**
      * Drop background, foreground and the elevation shadow. A childless plate is also
      * faded out, in case it paints its colour in `onDraw` rather than as a background.
-     * The first values are kept so turning 输入框悬浮 off can restore them.
+     * The first values are kept so releasing the comment glass can restore them.
      */
     private fun clearPaint(view: View, reason: String) {
         val background = view.background
@@ -716,35 +691,11 @@ internal object DouyinFeedGlass {
         iconBackdrops.clear()
     }
 
-    /** Opaque wrappers between the capsule and the strip would hide the strip's glass. */
-    private fun clearBetween(pill: View, dock: View) {
-        var node = pill.parent as? View
-        var guard = 0
-        while (node != null && node !== dock && guard++ < 6) {
-            clearBackground(node, "input-dock")
-            node = node.parent as? View
-        }
-    }
-
-    /** Hairline dividers and leftover full-bleed shadows next to the strip. The pill stays. */
-    private fun clearDockSiblings(dock: View, pill: View, sheet: View?) {
-        val parent = dock.parent as? ViewGroup ?: return
-        if (parent === sheet || parent.javaClass.simpleName == SHEET_CLASS) return
-        val density = dock.resources.displayMetrics.density
-        val rootWidth = (sheet?.width ?: dock.rootView.width).coerceAtLeast(1)
-        for (index in 0 until parent.childCount) {
-            val sibling = parent.getChildAt(index)
-            if (sibling === dock || sibling === pill || isUnder(pill, sibling)) continue
-            val fullBleed = sibling.width >= rootWidth * 0.97f && sibling.height <= dock.height
-            val hairline = sibling.height <= (12f * density) && sibling.width >= rootWidth * 0.72f
-            if (fullBleed || hairline) clearBackground(sibling, "input-sibling")
-        }
-    }
-
     /**
      * One glass surface sits on the panel. Header and list have to let it show through.
      * `CommentRecyclerView` used to keep its own fill, so the title looked frosted and
-     * the list did not. The pill and the input strip are skipped: they get their own glass.
+     * the list did not. The pill is skipped so its capsule stays. The input strip is
+     * skipped here and cleared after its original paint has been saved.
      */
     private fun clearCoveringBackgrounds(sheet: ViewGroup, pill: View?, dock: View?) {
         val minWidth = sheet.width * 0.82f
@@ -889,11 +840,7 @@ internal object DouyinFeedGlass {
      * list's bottom. Extra bottom padding with clipToPadding off lets the last comment
      * rest above the dock and slide under it while scrolling.
      */
-    private fun applyFloat(dock: View, sheet: View?, enabled: Boolean) {
-        if (!enabled) {
-            restoreFloat()
-            return
-        }
+    private fun applyFloat(dock: View, sheet: View?) {
         val list = findCommentList(sheet, dock)
         if (list == null) {
             if (!loggedFloatMiss) {

@@ -538,9 +538,9 @@ object LocalSettings {
         commentInputGlass = if (prefix == GLOBAL) {
             p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_INPUT, defaults.commentInputGlass)
         } else defaults.commentInputGlass,
-        commentInputFloat = if (prefix == GLOBAL) {
-            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_INPUT_FLOAT, defaults.commentInputFloat)
-        } else defaults.commentInputFloat,
+        commentInputTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_INPUT_TINT, defaults.commentInputTintAlpha)
+        } else defaults.commentInputTintAlpha,
     ).normalized()
 
     private fun SharedPreferences.Editor.writeConfig(prefix: String, value: GlassConfig) {
@@ -606,7 +606,7 @@ object LocalSettings {
             putBoolean(prefix + ConfigContract.KEY_COMMENT_OUTLINE, value.commentOutlineEnabled)
             putFloat(prefix + ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
             putBoolean(prefix + ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
-            putBoolean(prefix + ConfigContract.KEY_COMMENT_INPUT_FLOAT, value.commentInputFloat)
+            putFloat(prefix + ConfigContract.KEY_COMMENT_INPUT_TINT, value.commentInputTintAlpha)
         }
         putFloat(prefix + ConfigContract.KEY_ICON_SCALE, value.iconScale)
         putFloat(prefix + ConfigContract.KEY_TEXT_SIZE, value.textSize)
