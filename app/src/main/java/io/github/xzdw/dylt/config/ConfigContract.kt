@@ -148,6 +148,8 @@ object ConfigContract {
     const val KEY_COMMENT_OUTLINE = "comment_outline"
     const val KEY_COMMENT_HIGHLIGHT = "comment_highlight"
     const val KEY_COMMENT_INPUT = "comment_input"
+    /** 输入框悬浮: the comment list scrolls under the frosted input dock. Default on. */
+    const val KEY_COMMENT_INPUT_FLOAT = "comment_input_float"
 
     const val KEY_SYSTEM_DARK = "system_dark"
     const val KEY_MI_MARKET_TAB_ENABLED = "mi_market_tab_enabled"

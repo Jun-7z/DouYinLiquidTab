@@ -1943,11 +1943,18 @@ private fun GlassSettingsSubpage(
                     ) { actions.setGlassConfig(config.copy(commentGlassEnabled = it)) }
                     GlassSwitchRow(
                         "输入栏也用玻璃",
-                        if (config.commentInputGlass) "底部输入条跟面板同一层玻璃" else "输入条保持原样",
+                        if (config.commentInputGlass) "胶囊输入框和底部条都用评论区玻璃" else "输入条保持原样",
                         config.commentInputGlass,
                         backdrop,
                         palette,
                     ) { actions.setGlassConfig(config.copy(commentInputGlass = it)) }
+                    GlassSwitchRow(
+                        "输入框悬浮",
+                        if (config.commentInputFloat) "评论列表从磨砂输入条下面滑过" else "输入条单独占一行，列表停在它上方",
+                        config.commentInputFloat,
+                        backdrop,
+                        palette,
+                    ) { actions.setGlassConfig(config.copy(commentInputFloat = it)) }
                     GlassSlider(
                         "模糊半径\n0–40",
                         config.commentBlurRadius,

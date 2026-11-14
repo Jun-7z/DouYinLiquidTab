@@ -182,6 +182,11 @@ data class GlassConfig(
     val commentOutlineEnabled: Boolean = true,
     val commentHighlight: Float = 0.35f,
     val commentInputGlass: Boolean = true,
+    /**
+     * 输入框悬浮: the comment list runs to the bottom of the sheet, under the input dock,
+     * so rows slide behind the frosted bar. Off puts the dock back in its own row.
+     */
+    val commentInputFloat: Boolean = true,
 ) {
     /** 仅文字: the bar draws labels alone, vertically centred where the glyph used to sit. */
     val textOnly: Boolean get() = bottomBarStyle == BOTTOM_BAR_STYLE_TEXT_ONLY
@@ -331,6 +336,7 @@ data class GlassConfig(
         putBoolean(ConfigContract.KEY_COMMENT_OUTLINE, value.commentOutlineEnabled)
         putFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
         putBoolean(ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
+        putBoolean(ConfigContract.KEY_COMMENT_INPUT_FLOAT, value.commentInputFloat)
     }
 
     companion object {
@@ -524,6 +530,7 @@ data class GlassConfig(
                 commentOutlineEnabled = bundle.getBoolean(ConfigContract.KEY_COMMENT_OUTLINE, true),
                 commentHighlight = bundle.getFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, 0.35f),
                 commentInputGlass = bundle.getBoolean(ConfigContract.KEY_COMMENT_INPUT, true),
+                commentInputFloat = bundle.getBoolean(ConfigContract.KEY_COMMENT_INPUT_FLOAT, true),
             ).normalized()
         }
     }

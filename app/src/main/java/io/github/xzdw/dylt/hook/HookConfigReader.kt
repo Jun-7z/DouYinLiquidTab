@@ -612,6 +612,9 @@ object HookConfigReader {
         commentInputGlass = if (prefix == GLOBAL) {
             p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_INPUT, defaults.commentInputGlass)
         } else defaults.commentInputGlass,
+        commentInputFloat = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_INPUT_FLOAT, defaults.commentInputFloat)
+        } else defaults.commentInputFloat,
     ).normalized()
 
     private const val QQ_PACKAGE = "com.tencent.mobileqq"
