@@ -159,9 +159,19 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
         // `enabledIndices` — so filter the label table through it and compact: a hidden entry
         // leaves no gap, and the remaining labels share the pill on exactly the band the
         // host's own capsule uses (tabWidthPx divides by the same count).
+        //
+        // The pill is always the four tabs. Two circles (plus and disc) shrink that band
+        // by another button-plus-gap; the host's slot width already did, so use it.
+        // One circle, or none, keeps the formula below so the default bar cannot drift.
+        val paired = DouyinBottomSlot.showPlus && DouyinBottomSlot.showRight
         val entries = NATIVE_SLOTS.indices.filter { NATIVE_SLOTS[it] in frame.enabledIndices }
         val entryCount = entries.size.coerceAtLeast(1)
-        val slotWidth = ((width - 2f * sidePadding - buttonSize - gap).coerceAtLeast(1f)) / entryCount
+        val slotWidth = if (paired && frame.slotWidth > 1f) {
+            frame.slotWidth
+        } else {
+            ((width - 2f * sidePadding - buttonSize - gap).coerceAtLeast(1f)) / entryCount
+        }
+        val bandLeft = sidePadding
         // 底栏菜单文字: the user's names replace the built-in ones entry by entry, so a blank or
         // missing line keeps the app's own name (see the settings page's placeholder).
         val labels = Array(LABELS.size) { entry ->
@@ -247,7 +257,7 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
             if (frame.darkGlass) unselectedIconColor else LABEL_UNSELECTED_COLOR_LIGHT
 
         for ((position, entry) in entries.withIndex()) {
-            val centreX = sidePadding + (position + 0.5f) * slotWidth
+            val centreX = bandLeft + (position + 0.5f) * slotWidth
             val selected = position == visualSelected
             // One animated scale per slot, mirroring the settings bar's per-tab graphicsLayer.
             // The outgoing tab eases down while the incoming one eases up; no slot boundary
@@ -341,10 +351,48 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
             }
         }
 
-        // The publish button belongs to the row itself, never to the selection ink.
+        // The trailing circle is the original plus, or the disc when that switch is on.
+        // Both on: the plus keeps this exact glyph and size, shifted left by one circle
+        // and one gap, and the disc uses the same circle on the outer edge.
         if (drawPublish && showPublish) {
-            drawPublishButton(canvas, width - buttonSize / 2f, height / 2f, buttonSize, density, customPublishIcon(frame), glyphColor)
+            val centreX = width - buttonSize / 2f
+            val centreY = height / 2f
+            if (DouyinBottomSlot.showRight) {
+                if (DouyinBottomSlot.showPlus) {
+                    val plusCentreX = width - buttonSize - gap - buttonSize / 2f
+                    drawPublishButton(
+                        canvas, plusCentreX, centreY, buttonSize, density,
+                        customPublishIcon(frame), glyphColor,
+                    )
+                }
+                drawDiscButton(canvas, centreX, centreY, buttonSize, glyphColor)
+            } else {
+                drawPublishButton(
+                    canvas, centreX, centreY, buttonSize, density, customPublishIcon(frame), glyphColor,
+                )
+            }
         }
+    }
+
+    /** A copy of the feed disc. The real view stays put; this circle spins on its own. */
+    private fun drawDiscButton(canvas: Canvas, centreX: Float, centreY: Float, size: Float, color: Int) {
+        val bitmap = DouyinBottomSlot.discArt()
+        val radius = size / 2f * (1f - PUBLISH_ICON_INSET_RATIO)
+        if (bitmap == null) {
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = size * 0.06f
+            paint.color = color
+            canvas.drawCircle(centreX, centreY, radius, paint)
+            return
+        }
+        publishClipPath.reset()
+        publishClipPath.addCircle(centreX, centreY, radius, Path.Direction.CW)
+        publishIconDest.set(centreX - radius, centreY - radius, centreX + radius, centreY + radius)
+        val saved = canvas.save()
+        canvas.clipPath(publishClipPath)
+        canvas.rotate(DouyinBottomSlot.discRotation(), centreX, centreY)
+        canvas.drawBitmap(bitmap, null, publishIconDest, publishIconPaint)
+        canvas.restoreToCount(saved)
     }
 
     /**

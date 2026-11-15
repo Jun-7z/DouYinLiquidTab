@@ -78,42 +78,51 @@ fun videoSize(texture: TextureView): Pair<Int, Int>? {
         }
         runCatching {
             val feed = Xposed.findClass("com.ss.android.ugc.aweme.feed.ui.FeedVideoPlayerView", context.classLoader)
-            // The feed output factory has been re-mapped more than once: X.0wMt (40.6.0),
-            // X.1KBI (40.7.0), X.0GO1 (the 2026-10-17 build). Selecting by name alone is
-            // not enough, because obfuscated names get recycled — the 2026-10-17 APK still
-            // contains X.1KBI, but as an unrelated class, so a name-only probe picked it and
-            // reported "factory not found". Resolve by *capability* instead: take the first
-            // candidate that really declares LJIILIIL(ViewGroup, boolean) and returns its
-            // own type, which is the feed-output builder.
-            val factory = listOf("X.0GO1", "X.1KBI", "X.0wMt").firstNotNullOfOrNull { name ->
-                runCatching { Xposed.findClass(name, context.classLoader) }
-                    .getOrNull()
-                    ?.takeIf { candidate ->
-                        runCatching {
-                            candidate.getDeclaredMethod(
-                                "LJIILIIL", ViewGroup::class.java, Boolean::class.javaPrimitiveType,
-                            )
-                        }.isSuccess
-                    }
-            }
-            val hasFactoryMethod = factory != null
-            if (!hasFactoryMethod) {
+            // Obfuscated names are recycled between builds, including builds that share a
+            // versionName. 41.0.0's factory is X.1OKa and 41.1.0's is X.1HiJ; both still
+            // contain X.0GO1 / X.1KBI / X.0wMt as unrelated classes. Resolve from the
+            // stable field anchors first, and only then fall back to the older names.
+            val resolved = runCatching { DouyinFeedOutputResolver.resolve(context.classLoader) }
+                .onFailure { Xposed.log("[OfflineGlass] feed factory scan failed: $it") }
+                .getOrNull()
+            val factoryMethod = resolved?.factoryMethod ?: "LJIILIIL"
+            val factory = resolveFactory(context.classLoader, resolved, factoryMethod)
+            if (factory == null) {
                 Xposed.log("[OfflineGlass] feed output factory not found; capture fallback stays")
+            } else if (resolved != null) {
+                Xposed.log(
+                    "[OfflineGlass] feed factory ${factory.name}#$factoryMethod " +
+                        "scope=${resolved.feedScopeMethod} switches=${resolved.booleanSwitches}",
+                )
             }
-            feed.getDeclaredMethod("LJJIJIIJIL")
-            Xposed.hookAllMethods(feed, "LJJIJIIJIL", object : MethodHook() {
+            // 41.1.0 renamed the scope method LJJIJIIJIL -> LJJIJIIJI. A missing name used
+            // to abort this whole block, which also dropped the factory hook. The two are
+            // installed independently now.
+            val scopeName = listOfNotNull(
+                resolved?.feedScopeMethod, "LJJIJIIJI", "LJJIJIIJIL",
+            ).distinct().firstOrNull { name ->
+                runCatching { feed.getDeclaredMethod(name) }.isSuccess
+            }
+            val parentField = feedParentField(feed)
+            if (scopeName != null && parentField != null) {
+                Xposed.hookAllMethods(feed, scopeName, object : MethodHook() {
+                    override fun beforeHookedMethod(p: MethodHookParam) {
+                        val parent = runCatching { parentField.get(p.thisObject) as? ViewGroup }.getOrNull() ?: return
+                        if (!eligible(parent.context)) return
+                        scopedCalls[p] = true
+                        feedScope.set(feedScope.get() + 1)
+                    }
+                    override fun afterHookedMethod(p: MethodHookParam) {
+                        if (scopedCalls.remove(p) == true) feedScope.set((feedScope.get() - 1).coerceAtLeast(0))
+                    }
+                })
+            } else {
+                Xposed.log("[OfflineGlass] feed scope method not found; live-photo path only")
+            }
+            if (factory != null) Xposed.hookAllMethods(factory, factoryMethod, object : MethodHook() {
                 override fun beforeHookedMethod(p: MethodHookParam) {
-                    val parent = runCatching { feed.getDeclaredField("a").apply { isAccessible = true }.get(p.thisObject) as? ViewGroup }.getOrNull() ?: return
-                    if (!eligible(parent.context)) return
-                    scopedCalls[p] = true
-                    feedScope.set(feedScope.get() + 1)
-                }
-                override fun afterHookedMethod(p: MethodHookParam) {
-                    if (scopedCalls.remove(p) == true) feedScope.set((feedScope.get() - 1).coerceAtLeast(0))
-                }
-            })
-            if (hasFactoryMethod) Xposed.hookAllMethods(factory, "LJIILIIL", object : MethodHook() {
-                override fun beforeHookedMethod(p: MethodHookParam) {
+                    // Other overloads of the same obfuscated name are not the output builder.
+                    if (p.args.size < 2 || p.args[1] !is Boolean) return
                     if (feedScope.get() == 0) {
                         val parent = p.args.firstOrNull() as? ViewGroup ?: return
                         // X.0wei is the installed APK's Horizon LivePhotoPlayer,
@@ -173,7 +182,7 @@ fun videoSize(texture: TextureView): Pair<Int, Int>? {
             // fell back to PixelCopy readback and lagged. Forcing the TextureView side
             // removes the readback. All wrapped: if a name moves again, the existing
             // capture fallback simply stays in place.
-            if (hasFactoryMethod) runCatching {
+            if (factory != null) runCatching {
                 listOf(
                     "sIsEnableSurfaceviewForGeneralDevice",
                     "sIsEnableSurfaceviewForGeneralDevicesFetched",
@@ -181,12 +190,23 @@ fun videoSize(texture: TextureView): Pair<Int, Int>? {
                     "sIsSurfaceViewEnabledWhenInOppoBlackListFetched",
                 ).forEach { fieldName ->
                     runCatching {
-                        factory!!.getDeclaredField(fieldName).apply { isAccessible = true }
+                        factory.getDeclaredField(fieldName).apply { isAccessible = true }
                             .setBoolean(null, false)
                     }
                 }
-                listOf("LJIJJ", "LJJI", "LJJIIJZLJL").forEach { methodName ->
-                    Xposed.hookAllMethods(factory, methodName, object : MethodHook() {
+                // 41.0 and 41.1 keep LJIJJ/LJJIIJZLJL as the boolean decision, but LJJI
+                // is now void. Forcing a void method to return false aborts the caller,
+                // so only zero-arg boolean methods are hooked. Older builds still match
+                // LJJI while it returns boolean.
+                val switchNames = (resolved?.booleanSwitches ?: listOf("LJIJJ", "LJJI", "LJJIIJZLJL"))
+                    .ifEmpty { listOf("LJIJJ", "LJJI", "LJJIIJZLJL") }
+                val booleanType = Boolean::class.javaPrimitiveType
+                factory.declaredMethods.filter { method ->
+                    method.name in switchNames &&
+                        method.parameterCount == 0 &&
+                        method.returnType == booleanType
+                }.forEach { method ->
+                    Xposed.hookMethod(method, object : MethodHook() {
                         override fun beforeHookedMethod(p: MethodHookParam) {
                             p.result = false
                         }
@@ -204,6 +224,55 @@ fun videoSize(texture: TextureView): Pair<Int, Int>? {
             Log.w("OfflineGlassDouyin", "native texture unavailable; retain capture fallback", it)
             Xposed.log("[OfflineGlass] DouyinTextureHooks FAILED: $it")
         }
+    }
+
+    /**
+     * Names that really declare `(ViewGroup, boolean)` returning themselves.
+     * The anchor scan is authoritative; the list only covers a scan failure on
+     * the builds whose factory names were checked by hand.
+     */
+    private fun resolveFactory(
+        classLoader: ClassLoader,
+        resolved: DouyinFeedOutputResolver.Target?,
+        methodName: String,
+    ): Class<*>? {
+        val names = listOfNotNull(resolved?.factoryClass) + listOf("X.0GO1", "X.1KBI", "X.0wMt")
+        return names.distinct().firstNotNullOfOrNull { name ->
+            runCatching { Xposed.findClass(name, classLoader) }.getOrNull()?.takeIf { candidate ->
+                runCatching {
+                    candidate.getDeclaredMethod(
+                        methodName, ViewGroup::class.java, Boolean::class.javaPrimitiveType,
+                    ).returnType == candidate
+                }.getOrDefault(false)
+            }
+        }
+    }
+
+    /** `a` on every build checked so far; a renamed field still works when it is the only ViewGroup. */
+    private fun feedParentField(feed: Class<*>): java.lang.reflect.Field? {
+        val named = runCatching { feed.getDeclaredField("a") }.getOrNull()
+            ?.takeIf { ViewGroup::class.java.isAssignableFrom(it.type) }
+        val field = named ?: feed.declaredFields.singleOrNull {
+            ViewGroup::class.java.isAssignableFrom(it.type)
+        } ?: return null
+        field.isAccessible = true
+        return field
+    }
+
+    /** 40.x hands back a TextureView. 41.x hands back a render-view interface. */
+    private fun textureOf(result: Any?): TextureView? {
+        if (result is TextureView) return result
+        if (result == null) return null
+        val view = runCatching { Xposed.callMethod(result, "getSelfView") as? View }.getOrNull()
+            ?: runCatching { Xposed.callMethod(result, "getView") as? View }.getOrNull()
+            ?: return null
+        if (view is TextureView) return view
+        val group = view as? ViewGroup ?: return null
+        for (index in 0 until group.childCount) {
+            val child = group.getChildAt(index)
+            if (child is TextureView) return child
+        }
+        return null
     }
 
     /** 40.6.0 LivePlayerView.LJII uses config.LJII to create its native renderer.
@@ -229,7 +298,9 @@ fun videoSize(texture: TextureView): Pair<Int, Int>? {
                 }
                 override fun afterHookedMethod(p: MethodHookParam) {
                     if (selectedCalls.remove(p) != true) return
-                    val texture = p.result as? TextureView ?: return
+                    // 40.x returned the TextureView directly. 41.0/41.1 return a render-view
+                    // interface whose getSelfView() is the actual view.
+                    val texture = textureOf(p.result) ?: return
                     synchronized(textures) { textures[texture] = true }
                 }
             })
@@ -249,7 +320,17 @@ fun videoSize(texture: TextureView): Pair<Int, Int>? {
         val limit = minOf(frames.size, STACK_SCAN_DEPTH)
         for (i in 0 until limit) {
             val name = frames[i].className
-            if (name == "X.0wei" || name == "X.0weh") return true
+            // X.0wei / X.0weh were the horizon player on 40.x. 41.x recycled both names
+            // and ships the player as MultiLivePhotoCardPlayer (and LivePhotoPlayer on
+            // builds that still use that spelling). Matching the stable name keeps the
+            // old stack frames working without trusting a recycled obfuscated name alone
+            // on a build where that class is something else — those frames simply never
+            // appear on the factory call.
+            if (name == "X.0wei" || name == "X.0weh" ||
+                name.contains("LivePhotoPlayer") ||
+                name.contains("LivePhotoCardPlayer") ||
+                name.contains(".horizon.livephoto.")
+            ) return true
         }
         return false
     }

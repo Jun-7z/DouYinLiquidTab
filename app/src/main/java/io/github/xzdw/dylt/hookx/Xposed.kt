@@ -82,6 +82,25 @@ object Xposed {
         }
     }
 
+    /**
+     * Hooks one already-resolved method.
+     *
+     * [hookAllMethods] cannot tell two overloads apart, and a void method must not be
+     * given a boolean result. Callers that have checked the signature use this instead.
+     */
+    fun hookMethod(method: Method, hook: MethodHook) {
+        if (Modifier.isAbstract(method.modifiers)) return
+        when (hookExecutable(method, hook)) {
+            HookResult.DEOPTIMIZED -> {
+                hookInstallations++
+                hookDeoptimizations++
+            }
+            HookResult.HOOKED -> hookInstallations++
+            HookResult.FAILED -> Unit
+        }
+        note("hookMethod ${describe(method)}")
+    }
+
     /** Hooks every method with this name, walking up the class hierarchy. */
     fun hookAllMethods(target: Class<*>, methodName: String, hook: MethodHook) {
         var hooked = 0

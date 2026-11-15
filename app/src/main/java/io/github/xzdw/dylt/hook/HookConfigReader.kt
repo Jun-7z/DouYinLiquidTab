@@ -557,7 +557,83 @@ object HookConfigReader {
         } else {
             defaults.publishIcon
         },
+        // 右侧操作列 / 评论区 are settings-page sections. An app prefix must not shadow them.
+        actionGlassEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_GLASS, defaults.actionGlassEnabled)
+        } else defaults.actionGlassEnabled,
+        actionBlurRadius = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_BLUR, defaults.actionBlurRadius)
+        } else defaults.actionBlurRadius,
+        actionTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_TINT, defaults.actionTintAlpha)
+        } else defaults.actionTintAlpha,
+        actionTintMode = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_ACTION_TINT_MODE, defaults.actionTintMode)
+        } else defaults.actionTintMode,
+        actionOutlineEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_OUTLINE, defaults.actionOutlineEnabled)
+        } else defaults.actionOutlineEnabled,
+        actionOutlineWidthDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_OUTLINE_WIDTH, defaults.actionOutlineWidthDp)
+        } else defaults.actionOutlineWidthDp,
+        actionHighlight = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_HIGHLIGHT, defaults.actionHighlight)
+        } else defaults.actionHighlight,
+        actionLikedTint = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_LIKED_TINT, defaults.actionLikedTint)
+        } else defaults.actionLikedTint,
+        actionScale = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_SCALE, defaults.actionScale)
+        } else defaults.actionScale,
+        commentGlassEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_GLASS, defaults.commentGlassEnabled)
+        } else defaults.commentGlassEnabled,
+        commentBlurRadius = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_BLUR, defaults.commentBlurRadius)
+        } else defaults.commentBlurRadius,
+        commentTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_TINT, defaults.commentTintAlpha)
+        } else defaults.commentTintAlpha,
+        commentLightTint = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_COMMENT_LIGHT, defaults.commentLightTint)
+        } else defaults.commentLightTint,
+        commentDarkTint = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_COMMENT_DARK, defaults.commentDarkTint)
+        } else defaults.commentDarkTint,
+        commentCornerRadiusDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_CORNER, defaults.commentCornerRadiusDp)
+        } else defaults.commentCornerRadiusDp,
+        commentOutlineEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_OUTLINE, defaults.commentOutlineEnabled)
+        } else defaults.commentOutlineEnabled,
+        commentHighlight = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_HIGHLIGHT, defaults.commentHighlight)
+        } else defaults.commentHighlight,
+        commentInputGlass = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_INPUT, defaults.commentInputGlass)
+        } else defaults.commentInputGlass,
+        commentInputTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_INPUT_TINT, defaults.commentInputTintAlpha)
+        } else defaults.commentInputTintAlpha,
+        showRightSlot = if (prefix == GLOBAL) readShowRightSlot(p) else defaults.showRightSlot,
+        rightSlotType = if (prefix == GLOBAL) {
+            p.getString(GLOBAL + ConfigContract.KEY_RIGHT_SLOT_TYPE, defaults.rightSlotType)
+                ?: defaults.rightSlotType
+        } else defaults.rightSlotType,
+        hideShootSame = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_HIDE_SHOOT_SAME, defaults.hideShootSame)
+        } else defaults.hideShootSame,
     ).normalized()
+
+    /**
+     * `show_right_slot` wins once it has been saved. Before that, the 1.7.15
+     * `bottom_slot=music` choice turns the circle on; publish and me leave it off.
+     */
+    private fun readShowRightSlot(p: android.content.SharedPreferences): Boolean {
+        val key = GLOBAL + ConfigContract.KEY_SHOW_RIGHT_SLOT
+        if (p.contains(key)) return p.getBoolean(key, false)
+        return GlassConfig.legacyShowsRightSlot(p.getString(GLOBAL + ConfigContract.KEY_BOTTOM_SLOT, null))
+    }
 
     private const val QQ_PACKAGE = "com.tencent.mobileqq"
     private const val GLOBAL = "glass_"

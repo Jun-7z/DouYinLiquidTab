@@ -650,8 +650,8 @@ class GlassHostLayout(
         // reaches an adapter-owned glass alpha (Douyin's dark 0.20) instead of being
         // silently overwritten by it.
         val alphaScaled = adapted.copy(
-            lightAlpha = (adapted.lightAlpha * adapted.glassAlphaScale).coerceIn(0f, 0.95f),
-            darkAlpha = (adapted.darkAlpha * adapted.glassAlphaScale).coerceIn(0f, 0.95f),
+            lightAlpha = (adapted.lightAlpha * adapted.glassAlphaScale).coerceIn(0f, 1f),
+            darkAlpha = (adapted.darkAlpha * adapted.glassAlphaScale).coerceIn(0f, 1f),
         )
         // Rendering switches are enforced after app-specific normalization so
         // no adapter can accidentally re-enable a retired or disabled path.
@@ -1510,6 +1510,9 @@ internal var selectedIndex = 0
     private var indicatorGestureActive = false
 
     private var pendingTapIndex = -1
+
+    /** Visual slot the current tap started on, before it is mapped back to a native page. */
+    private var pendingVisualIndex = -1
 
     /** Detached action button the current gesture started on: 0 leading, 1 trailing, -1 none. */
     private var pendingActionBand = -1
@@ -4160,17 +4163,16 @@ internal fun syncOpticalVisibilityCompanions() {
                     pendingInlineAction
                 ) {
 
+                    pendingVisualIndex = -1
                     -1
 
                 } else {
 
-                    navigationIndexForVisualIndex(
-
-                        ((event.x - navigationSlotBandLeftPx()) / slotWidth).toInt()
-
-                            .coerceIn(0, visualSlots - 1),
-
-                    ).takeUnless(::isNavigationEntryDisabled) ?: -1
+                    val visual = ((event.x - navigationSlotBandLeftPx()) / slotWidth).toInt()
+                        .coerceIn(0, visualSlots - 1)
+                    pendingVisualIndex = visual
+                    navigationIndexForVisualIndex(visual)
+                        .takeUnless { it < 0 || isNavigationEntryDisabled(it) } ?: -1
 
                 }
 
@@ -4294,11 +4296,25 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     )
 
+                    // Releasing on a non-page cell (the plus, the disc) passes through to the
+                    // nearest real tab. The cell itself only fires on a tap, not a drag.
+                    val passed = if (rawTarget < 0) {
+                        targetAdapter?.nearestSelectableVisual(dragTarget, enabledNavigationIndices())
+                            ?.let { navigationIndexForVisualIndex(it) }
+                            ?.takeIf { it >= 0 }
+                    } else {
+                        null
+                    }
+
                     val actionTarget = event.actionMasked == MotionEvent.ACTION_UP &&
 
-                        rawTarget in nonSelectableIndices && !isNavigationEntryDisabled(rawTarget)
+                        rawTarget >= 0 && rawTarget in nonSelectableIndices && !isNavigationEntryDisabled(rawTarget)
 
-                    val target = if (actionTarget) {
+                    val target = if (rawTarget < 0) {
+
+                        passed ?: selectedIndex
+
+                    } else if (actionTarget) {
 
                         selectedIndex
 
@@ -4312,6 +4328,8 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     }
 
+                    val previousSelection = selectedIndex
+
                     selectedIndex = target
 
                     dragTarget = visualPositionForNavigationIndex(target)
@@ -4322,9 +4340,13 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     panelOffsetSpring.animateTo(0f)
 
-                    if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    if (event.actionMasked == MotionEvent.ACTION_UP && rawTarget >= 0) {
 
                         performNavigationSelection(if (actionTarget) rawTarget else target)
+
+                    } else if (event.actionMasked == MotionEvent.ACTION_UP && target != previousSelection) {
+
+                        performNavigationSelection(target)
 
                     }
 
@@ -4334,12 +4356,17 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     if (pendingActionBand >= 0 && actionBandAt(event.x) == pendingActionBand) {
 
+                        if (pendingActionBand == 2) {
+                            // The plus between the pill and the right circle.
+                            appNavigationState?.performMiddleAction(this, navigationSource)
+                        } else {
                         // A detached action circle: the app's own key handles it.
                         appNavigationState?.performActionTap(
                             this,
                             navigationSource,
                             pendingActionBand == 0,
                         )
+                        }
 
                     } else if (pendingInlineAction && inlineActionBandAt(event.x)) {
 
@@ -4349,13 +4376,19 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     } else {
 
-                    val upIndex = navigationIndexForVisualIndex(
+                    val visual = ((event.x - navigationSlotBandLeftPx()) / slotWidth).toInt()
+                        .coerceIn(0, visualSlots - 1)
+                    val pillKind = if (!topBar && pendingVisualIndex == visual) {
+                        targetAdapter?.pillActionKind(visual, enabledNavigationIndices()) ?: 0
+                    } else {
+                        0
+                    }
+                    if (pillKind != 0) {
+                        // The disc cell inside the pill. The selection stays on the page.
+                        appNavigationState?.performPillAction(this, navigationSource, pillKind)
+                    } else {
 
-                        ((event.x - navigationSlotBandLeftPx()) / slotWidth).toInt()
-
-                            .coerceIn(0, visualSlots - 1),
-
-                    )
+                    val upIndex = navigationIndexForVisualIndex(visual)
 
                     val tapped = pendingTapIndex.takeIf { it == upIndex } ?: -1
 
@@ -4385,11 +4418,15 @@ internal fun syncOpticalVisibilityCompanions() {
 
                     }
 
+                    }
+
                 }
 
                 indicatorGestureActive = false
 
                 pendingTapIndex = -1
+
+                pendingVisualIndex = -1
 
                 pendingActionBand = -1
 
@@ -4698,12 +4735,11 @@ internal fun syncOpticalVisibilityCompanions() {
     /**
      * Gap between an adapter's detached action button and the main pill, in px.
      *
-     * "鍘婚櫎鍙戝竷鎸夐挳" collapses this reserve for the bottom bar. With no gap there is no detached
-     * button either ([navigationActionButtonPx] returns 0), so [rebuildPanelPath] falls back to
-     * the single capsule spanning the host, [tabWidthPx] hands the four slots the whole width and
-     * [actionBandAt] stops reporting a trailing action —which is what makes the capsule fill the
-     * bottom instead of ending short of the publish circle. The top copy is deliberately excluded:
-     * its two reserves are its own tab-menu keys, not a publish button.
+     * Hiding the plus collapses this reserve for the bottom bar, unless the right-slot
+     * circle is on — that circle is the same size and keeps the gap by itself. With no
+     * gap there is no detached button either ([navigationActionButtonPx] returns 0), so
+     * [rebuildPanelPath] falls back to the single capsule spanning the host. The top
+     * copy is deliberately excluded: its two reserves are its own tab-menu keys.
      */
     private fun navigationActionGapPx(): Float =
         if (topBar) {
@@ -4716,7 +4752,8 @@ internal fun syncOpticalVisibilityCompanions() {
                 (actionReserveDp?.second ?: (targetAdapter?.navigationActionReserveGapDp ?: 0f)) *
                     density * topBarScale()
             }
-        } else if (!config.showPostButton) {
+        } else if (!config.showPostButton && targetAdapter?.navigationRightSlotCircle() != true) {
+            // No plus and no right-slot circle: the pill spans the host.
             0f
         } else {
             (actionReserveDp?.second ?: (targetAdapter?.navigationActionReserveGapDp ?: 0f)) *
@@ -4724,14 +4761,21 @@ internal fun syncOpticalVisibilityCompanions() {
         }
 
     /** Left-hand companion of [navigationActionGapPx]; zero keeps a plain capsule edge. */
-    private fun navigationActionLeftGapPx(): Float =
-        if (topBar && config.topBarHideLeadingAction) {
-            // 顶栏两侧按钮: the leading key is gone, so the capsule starts at the host edge and
-            // the remaining cluster is centred by the host's own TOP|CENTER_HORIZONTAL gravity.
-            0f
-        } else {
-            (actionReserveDp?.first ?: 0f) * density * topBarScale()
+    private fun navigationActionLeftGapPx(): Float {
+        if (topBar) {
+            if (config.topBarHideLeadingAction) {
+                // 顶栏两侧按钮: the leading key is gone, so the capsule starts at the host edge and
+                // the remaining cluster is centred by the host's own TOP|CENTER_HORIZONTAL gravity.
+                return 0f
+            }
+            return (actionReserveDp?.first ?: 0f) * density * topBarScale()
         }
+        // The bottom bar has no leading circle. The plus is the trailing circle.
+        if (!config.showPostButton) return 0f
+        val adapterGap = targetAdapter?.navigationActionLeftGapDp ?: 0f
+        if (adapterGap > 0f) return adapterGap * density
+        return (actionReserveDp?.first ?: 0f) * density
+    }
 
     /**
      * 椤舵爮鍙傛暟: the top cluster's own multiplier.
@@ -4785,6 +4829,24 @@ internal fun syncOpticalVisibilityCompanions() {
         return (navigationActionLeftButtonPx() + gap).coerceAtMost(width * 0.5f)
     }
 
+    /**
+     * The original plus, moved left of the rightmost circle when that circle is also on.
+     * Same diameter as the trailing circle. Zero keeps the single-circle path.
+     */
+    private fun navigationMiddleButtonPx(): Float {
+        if (topBar || !config.showPostButton) return 0f
+        if (targetAdapter?.navigationRightSlotCircle() != true) return 0f
+        if (navigationActionGapPx() <= 0f) return 0f
+        return navigationActionButtonPx()
+    }
+
+    /** The middle circle plus the same gap the trailing circle keeps on its left. */
+    private fun navigationMiddleReservePx(): Float {
+        val button = navigationMiddleButtonPx()
+        if (button <= 0f) return 0f
+        return button + navigationActionGapPx()
+    }
+
     /** Left edge of the slot band: the shared 4 dp inset, after a leading action button. */
     private fun navigationSlotBandLeftPx(): Float =
         4f * density + navigationActionLeftReservePx() + inlineActionWidthPx()
@@ -4819,6 +4881,14 @@ internal fun syncOpticalVisibilityCompanions() {
         val left = navigationActionLeftReservePx()
         if (left > 0f && x < left) return 0
         val right = navigationActionReservePx()
+        val middle = navigationMiddleReservePx()
+        // The gap on the pill side belongs to the plus, the same way the trailing
+        // reserve's gap belongs to the right circle. Otherwise that strip selects
+        // the last tab.
+        if (middle > 0f && right > 0f) {
+            val zoneRight = width - right
+            if (x >= zoneRight - middle && x < zoneRight) return 2
+        }
         if (right > 0f && x >= width - right) return 1
         return -1
     }
@@ -4832,6 +4902,7 @@ internal fun syncOpticalVisibilityCompanions() {
      */
     private fun rebuildPanelPath() {
         if (width <= 0 || height <= 0) return
+        if (!topBar) targetAdapter?.syncNavigationChrome(config)
         val gap = navigationActionGapPx()
         val button = navigationActionButtonPx()
         val leftGap = navigationActionLeftGapPx()
@@ -4860,7 +4931,9 @@ internal fun syncOpticalVisibilityCompanions() {
         } else {
             0f
         }
-        val pillRight = (width - button - gap).coerceAtLeast(1f)
+        val middle = navigationMiddleButtonPx()
+        val middleGap = if (middle > 0f) gap else 0f
+        val pillRight = (width - button - gap - middle - middleGap).coerceAtLeast(1f)
         val pillRect = RectF(pillLeft, 0f, pillRight, height.toFloat())
         // setBottomBarSquircle resets the path, so the circles must be appended after it.
         clipPath.setBottomBarSquircle(
@@ -4885,12 +4958,24 @@ internal fun syncOpticalVisibilityCompanions() {
             ),
             Path.Direction.CW,
         )
+        if (middle > 0f) {
+            val middleLeft = width - button - gap - middle
+            clipPath.addOval(
+                RectF(
+                    middleLeft,
+                    (height - middle) / 2f,
+                    middleLeft + middle,
+                    (height + middle) / 2f,
+                ),
+                Path.Direction.CW,
+            )
+        }
     }
 
     private fun tabWidthPx(): Float =
 
         ((width - 8f * density - navigationActionReservePx() - navigationActionLeftReservePx() -
-            inlineActionWidthPx()).coerceAtLeast(1f) /
+            navigationMiddleReservePx() - inlineActionWidthPx()).coerceAtLeast(1f) /
             visualSlotCount().coerceAtLeast(1))
 
 
@@ -6060,6 +6145,11 @@ internal fun syncOpticalVisibilityCompanions() {
             // sizes the panel as the full cluster), which is what makes the capsule fill it.
             old.showPostButton != config.showPostButton ||
 
+            // 右侧按钮 adds a second circle of the same size to the right of the plus,
+            // or becomes the only circle when the plus is hidden.
+            old.showRightSlot != config.showRightSlot ||
+            old.rightSlotType != config.rightSlotType ||
+
             // 顶栏两侧按钮: a hidden corner key removes a whole shape from the panel path (the
             // circle) and moves the capsule's edge, so the path must be rebuilt.
             old.topBarHideLeadingAction != config.topBarHideLeadingAction ||
@@ -6432,9 +6522,18 @@ internal fun syncOpticalVisibilityCompanions() {
             drawAdapterNavigation(
                 canvas,
                 extraScale = scaledContent,
-                selectedSlot = navigationIndexForVisualIndex(
-                    indicatorPosition.roundToInt().coerceIn(0, visualSlotCount() - 1),
-                ),
+                selectedSlot = if (!topBar && targetAdapter?.suppressSelectionCapsule(
+                        selectedIndex, enabledNavigationIndices(),
+                    ) == true
+                ) {
+                    // The page is the side circle. The indicator is still sitting on the
+                    // last pill tab; reporting that would accent the wrong label.
+                    selectedIndex
+                } else {
+                    navigationIndexForVisualIndex(
+                        indicatorPosition.roundToInt().coerceIn(0, visualSlotCount() - 1),
+                    )
+                },
             )
 
         } else if (context.packageName == FILE_MANAGER_PACKAGE && fmStaticIconsPopulated) {
@@ -7206,7 +7305,8 @@ internal fun syncOpticalVisibilityCompanions() {
         // tab —and shrink the copy, whose width is derived from the visible slot count.
         !topBar && index in 0 until slotCount &&
 
-            config.hiddenMask and (1 shl index) != 0
+            (config.hiddenMask and (1 shl index) != 0 ||
+                targetAdapter?.navigationEntrySuppressed(index) == true)
 
 
 
@@ -7219,7 +7319,12 @@ internal fun syncOpticalVisibilityCompanions() {
 
 
 
-    private fun visualSlotCount(): Int = enabledNavigationIndices().size.coerceAtLeast(1)
+    private fun visualSlotCount(): Int {
+        val enabled = enabledNavigationIndices()
+        val native = enabled.size.coerceAtLeast(1)
+        if (topBar) return native
+        return targetAdapter?.pillVisualSlotCount(enabled)?.takeIf { it > 0 } ?: native
+    }
 
 
 
@@ -7264,6 +7369,16 @@ internal fun syncOpticalVisibilityCompanions() {
             if (targetAdapter?.reverseVisualSlotOrder == true) it.asReversed() else it
         }
 
+        if (!topBar) {
+            val override = targetAdapter?.visualPositionOverride(index, enabled)
+            if (override != null) {
+                // NaN: the page is the side circle. Leave the capsule where it is; drawing
+                // hides it so it does not slide onto 首页.
+                if (!override.isNaN()) return override
+                return indicatorPosition
+            }
+        }
+
         val position = enabled.indexOf(index).takeIf { it >= 0 } ?: 0
 
         return position.toFloat()
@@ -7276,6 +7391,11 @@ internal fun syncOpticalVisibilityCompanions() {
 
         val enabled = enabledNavigationIndices().let {
             if (targetAdapter?.reverseVisualSlotOrder == true) it.asReversed() else it
+        }
+
+        if (!topBar) {
+            val override = targetAdapter?.nativeIndexForVisualOverride(visualIndex, enabled)
+            if (override != null) return override
         }
 
         return enabled.getOrElse(visualIndex.coerceIn(0, enabled.lastIndex.coerceAtLeast(0))) {
@@ -8462,6 +8582,15 @@ internal fun drawOuterGlass(canvas: Canvas) {
 
         selectionPathValid = false
 
+        // The selected page lives on the side circle (profile, while 我 is that circle).
+        // Parking the capsule on the first pill cell would light up 首页.
+        if (!topBar && targetAdapter?.suppressSelectionCapsule(
+                selectedIndex, enabledNavigationIndices(),
+            ) == true
+        ) {
+            return
+        }
+
         // Selection bars (file manager action mode) render the liquid glass
 
         // panel without any slider: every slot is a plain tap target.
@@ -9114,7 +9243,7 @@ internal fun drawOuterGlass(canvas: Canvas) {
         // its 遮罩色.
         val leftInset = 4f * density + navigationActionLeftReservePx()
 
-        val rightInset = 4f * density + navigationActionReservePx()
+        val rightInset = 4f * density + navigationActionReservePx() + navigationMiddleReservePx()
 
         // Keeping the backdrop row at the full panel width displaced its left
 

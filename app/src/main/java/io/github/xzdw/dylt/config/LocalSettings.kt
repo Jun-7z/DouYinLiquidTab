@@ -365,6 +365,16 @@ object LocalSettings {
     /** Publishes the current complete configuration as one apply revision. */
     fun applyChanges(context: Context) = edit(context) { }
 
+    /**
+     * `show_right_slot` wins once it has been saved. Before that, the 1.7.15
+     * `bottom_slot=music` choice turns the circle on; publish and me leave it off.
+     */
+    private fun readShowRightSlot(p: SharedPreferences): Boolean {
+        val key = GLOBAL + ConfigContract.KEY_SHOW_RIGHT_SLOT
+        if (p.contains(key)) return p.getBoolean(key, false)
+        return GlassConfig.legacyShowsRightSlot(p.getString(GLOBAL + ConfigContract.KEY_BOTTOM_SLOT, null))
+    }
+
     private fun readConfig(p: SharedPreferences, prefix: String, defaults: GlassConfig): GlassConfig = GlassConfig(
         // Global-only knobs, exactly like controlDrop: they live on the settings page,
         // which writes the GLOBAL prefix. Reading them from an app prefix let a stale
@@ -484,6 +494,71 @@ object LocalSettings {
         } else {
             defaults.antiBurnIn
         },
+        actionGlassEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_GLASS, defaults.actionGlassEnabled)
+        } else defaults.actionGlassEnabled,
+        actionBlurRadius = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_BLUR, defaults.actionBlurRadius)
+        } else defaults.actionBlurRadius,
+        actionTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_TINT, defaults.actionTintAlpha)
+        } else defaults.actionTintAlpha,
+        actionTintMode = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_ACTION_TINT_MODE, defaults.actionTintMode)
+        } else defaults.actionTintMode,
+        actionOutlineEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_OUTLINE, defaults.actionOutlineEnabled)
+        } else defaults.actionOutlineEnabled,
+        actionOutlineWidthDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_OUTLINE_WIDTH, defaults.actionOutlineWidthDp)
+        } else defaults.actionOutlineWidthDp,
+        actionHighlight = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_HIGHLIGHT, defaults.actionHighlight)
+        } else defaults.actionHighlight,
+        actionLikedTint = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_ACTION_LIKED_TINT, defaults.actionLikedTint)
+        } else defaults.actionLikedTint,
+        actionScale = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_ACTION_SCALE, defaults.actionScale)
+        } else defaults.actionScale,
+        commentGlassEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_GLASS, defaults.commentGlassEnabled)
+        } else defaults.commentGlassEnabled,
+        commentBlurRadius = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_BLUR, defaults.commentBlurRadius)
+        } else defaults.commentBlurRadius,
+        commentTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_TINT, defaults.commentTintAlpha)
+        } else defaults.commentTintAlpha,
+        commentLightTint = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_COMMENT_LIGHT, defaults.commentLightTint)
+        } else defaults.commentLightTint,
+        commentDarkTint = if (prefix == GLOBAL) {
+            p.getInt(GLOBAL + ConfigContract.KEY_COMMENT_DARK, defaults.commentDarkTint)
+        } else defaults.commentDarkTint,
+        commentCornerRadiusDp = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_CORNER, defaults.commentCornerRadiusDp)
+        } else defaults.commentCornerRadiusDp,
+        commentOutlineEnabled = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_OUTLINE, defaults.commentOutlineEnabled)
+        } else defaults.commentOutlineEnabled,
+        commentHighlight = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_HIGHLIGHT, defaults.commentHighlight)
+        } else defaults.commentHighlight,
+        commentInputGlass = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_INPUT, defaults.commentInputGlass)
+        } else defaults.commentInputGlass,
+        commentInputTintAlpha = if (prefix == GLOBAL) {
+            p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_INPUT_TINT, defaults.commentInputTintAlpha)
+        } else defaults.commentInputTintAlpha,
+        showRightSlot = if (prefix == GLOBAL) readShowRightSlot(p) else defaults.showRightSlot,
+        rightSlotType = if (prefix == GLOBAL) {
+            p.getString(GLOBAL + ConfigContract.KEY_RIGHT_SLOT_TYPE, defaults.rightSlotType)
+                ?: defaults.rightSlotType
+        } else defaults.rightSlotType,
+        hideShootSame = if (prefix == GLOBAL) {
+            p.getBoolean(GLOBAL + ConfigContract.KEY_HIDE_SHOOT_SAME, defaults.hideShootSame)
+        } else defaults.hideShootSame,
     ).normalized()
 
     private fun SharedPreferences.Editor.writeConfig(prefix: String, value: GlassConfig) {
@@ -531,6 +606,28 @@ object LocalSettings {
             putString(prefix + ConfigContract.KEY_TOP_BAR_TAB_ORDER, value.topBarTabOrder)
             // 底栏显示样式，和它派生出的仅图标标记（iconOnly 由 normalized() 重新推导）。
             putInt(prefix + ConfigContract.KEY_BOTTOM_BAR_STYLE, value.bottomBarStyle)
+            putBoolean(prefix + ConfigContract.KEY_ACTION_GLASS, value.actionGlassEnabled)
+            putFloat(prefix + ConfigContract.KEY_ACTION_BLUR, value.actionBlurRadius)
+            putFloat(prefix + ConfigContract.KEY_ACTION_TINT, value.actionTintAlpha)
+            putInt(prefix + ConfigContract.KEY_ACTION_TINT_MODE, value.actionTintMode)
+            putBoolean(prefix + ConfigContract.KEY_ACTION_OUTLINE, value.actionOutlineEnabled)
+            putFloat(prefix + ConfigContract.KEY_ACTION_OUTLINE_WIDTH, value.actionOutlineWidthDp)
+            putFloat(prefix + ConfigContract.KEY_ACTION_HIGHLIGHT, value.actionHighlight)
+            putBoolean(prefix + ConfigContract.KEY_ACTION_LIKED_TINT, value.actionLikedTint)
+            putFloat(prefix + ConfigContract.KEY_ACTION_SCALE, value.actionScale)
+            putBoolean(prefix + ConfigContract.KEY_COMMENT_GLASS, value.commentGlassEnabled)
+            putFloat(prefix + ConfigContract.KEY_COMMENT_BLUR, value.commentBlurRadius)
+            putFloat(prefix + ConfigContract.KEY_COMMENT_TINT, value.commentTintAlpha)
+            putInt(prefix + ConfigContract.KEY_COMMENT_LIGHT, value.commentLightTint)
+            putInt(prefix + ConfigContract.KEY_COMMENT_DARK, value.commentDarkTint)
+            putFloat(prefix + ConfigContract.KEY_COMMENT_CORNER, value.commentCornerRadiusDp)
+            putBoolean(prefix + ConfigContract.KEY_COMMENT_OUTLINE, value.commentOutlineEnabled)
+            putFloat(prefix + ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
+            putBoolean(prefix + ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
+            putFloat(prefix + ConfigContract.KEY_COMMENT_INPUT_TINT, value.commentInputTintAlpha)
+            putBoolean(prefix + ConfigContract.KEY_SHOW_RIGHT_SLOT, value.showRightSlot)
+            putString(prefix + ConfigContract.KEY_RIGHT_SLOT_TYPE, value.rightSlotType)
+            putBoolean(prefix + ConfigContract.KEY_HIDE_SHOOT_SAME, value.hideShootSame)
         }
         putFloat(prefix + ConfigContract.KEY_ICON_SCALE, value.iconScale)
         putFloat(prefix + ConfigContract.KEY_TEXT_SIZE, value.textSize)

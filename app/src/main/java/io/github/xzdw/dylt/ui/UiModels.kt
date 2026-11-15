@@ -45,6 +45,8 @@ internal enum class ManagerSettingsSubpage(val title: String) {
     BOTTOM_BAR("底栏布局"),
     MENU_AND_TEXT("菜单与文字"),
     TOP_BAR("顶栏布局"),
+    ACTION_RAIL("右侧操作列"),
+    COMMENT_SHEET("评论区"),
     GLASS("玻璃效果"),
     // Second-level entries (listed under 菜单与文字).
     ENTRY_HIDE("入口隐藏"),
