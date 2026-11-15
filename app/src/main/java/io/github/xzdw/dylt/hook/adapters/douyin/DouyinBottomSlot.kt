@@ -29,12 +29,11 @@ import kotlin.math.max
  * publish circle. 「右侧按钮」 adds a second circle of that same size to its right;
  * today that circle is the music-disc proxy.
  *
- * The real [MusicCoverView] stays in the feed item. Reparenting it into the glass host
- * pulls it out of the recycled page that loads the cover and runs the spin, and the
- * host is not a normal parent for that view. While the right circle is the disc, this
- * object keeps the original VISIBLE and forces its alpha to 0, so the slot stays an
- * empty gap and the original animator keeps running. The circle's own spin does not
- * depend on that animator.
+ * The real MusicCoverView stays in the feed item. Reparenting it into the glass host
+ * pulls it out of the recycled page that loads the cover. While the right circle is
+ * the disc, the column slot that holds it stays VISIBLE and attached so the cover
+ * drawable keeps loading, but that slot measures to height 0 with no vertical margin
+ * or padding, and the buttons above it move down. The circle spins on its own.
  */
 internal object DouyinBottomSlot {
     private const val LOOK_MS = 400L
@@ -78,7 +77,27 @@ internal object DouyinBottomSlot {
     private val forced = Collections.synchronizedSet(
         Collections.newSetFromMap(WeakHashMap<View, Boolean>()),
     )
-    private val held = ArrayList<HeldDisc>(2)
+    private val held = ArrayList<HeldDisc>(4)
+
+    /**
+     * Column slots currently forced to a 0 measured height. Replaced as a whole so the
+     * measure hook can scan it without taking a lock.
+     */
+    @Volatile private var collapsedSlots: Array<View> = emptyArray()
+    private var collapseLayoutAt = 0L
+    private var collapseSeekAt = 0L
+    private var collapseNudges = 0
+    private var loggedCollapseMiss = false
+    private var zeroingLayout = false
+    private val measuredDimension: java.lang.reflect.Method? by lazy {
+        runCatching {
+            View::class.java.getDeclaredMethod(
+                "setMeasuredDimension",
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+            ).apply { isAccessible = true }
+        }.getOrNull()
+    }
 
     /**
      * Our own 8-second turn. The feed view's rotation only seeks this; a frozen
@@ -153,14 +172,51 @@ internal object DouyinBottomSlot {
                     val view = param.thisObject as? View ?: return
                     if (!forced.contains(view)) return
                     val visibility = param.args.getOrNull(0) as? Int ?: return
-                    // INVISIBLE makes isShown() false and Douyin pauses the spin.
+                    // INVISIBLE makes isShown() false and Douyin pauses cover loading.
                     // GONE is Douyin collapsing the slot itself; leave that alone.
                     if (visibility == View.INVISIBLE) param.args[0] = View.VISIBLE
+                }
+            })
+            // After the slot measures its cover at the real size, report height 0
+            // so the action column closes the gap. Children keep the size they just
+            // measured, which is what the cover loader and view.draw() use.
+            Xposed.hookAllMethods(View::class.java, "measure", object : MethodHook() {
+                override fun afterHookedMethod(param: MethodHook.MethodHookParam) {
+                    val view = param.thisObject as? View ?: return
+                    val slots = collapsedSlots
+                    var hit = false
+                    for (slot in slots) {
+                        if (slot === view) {
+                            hit = true
+                            break
+                        }
+                    }
+                    if (!hit || view.measuredHeight == 0) return
+                    runCatching { setMeasuredDimension(view, view.measuredWidth, 0) }
+                }
+            })
+            Xposed.hookAllMethods(View::class.java, "setLayoutParams", object : MethodHook() {
+                override fun afterHookedMethod(param: MethodHook.MethodHookParam) {
+                    val view = param.thisObject as? View ?: return
+                    if (zeroingLayout) return
+                    val item = held.firstOrNull { it.collapse && it.view === view } ?: return
+                    squashSlot(item, rememberIncoming = true)
                 }
             })
         }.onFailure { error ->
             Xposed.log("[OfflineGlass][BottomSlot] disc hide hook failed ${error.javaClass.simpleName}")
         }
+    }
+
+    private fun setMeasuredDimension(view: View, width: Int, height: Int) {
+        val method = measuredDimension
+        if (method != null) {
+            method.invoke(view, width, height)
+            return
+        }
+        org.lsposed.hiddenapibypass.HiddenApiBypass.invoke(
+            View::class.java, view, "setMeasuredDimension", width, height,
+        )
     }
 
     /** Called before the host rebuilds its path, so the circles match this config. */
@@ -196,7 +252,11 @@ internal object DouyinBottomSlot {
         }
         val now = SystemClock.uptimeMillis()
         val cached = discRef?.get()
-        if (cached == null || !cached.isAttachedToWindow || !placed(cached)) {
+        // A collapsed disc has no height, so the on-screen test would drop it and
+        // the next page's cover would steal the circle. Stay with it while attached.
+        val keepCached = cached != null && cached.isAttachedToWindow &&
+            (placed(cached) || forced.contains(cached))
+        if (!keepCached) {
             if (now - lookedAt >= LOOK_MS) {
                 lookedAt = now
                 val found = findDisc(root)
@@ -226,9 +286,14 @@ internal object DouyinBottomSlot {
             }
             val parent = view.parent as? View
             val parentNeeded = parent?.javaClass?.simpleName == "MusicCoverContainerLayout"
+            val slot = columnSlot(view)
             val heldView = held.any { it.view === view }
             val heldParent = !parentNeeded || held.any { it.view === parent }
-            if (!heldView || !heldParent) holdCurrent(view)
+            val heldSlot = slot != null && held.any { it.view === slot }
+            // The column may not have a size on the first pass. Keep looking until it does.
+            val retrySlot = slot == null && held.none { it.collapse } && now - collapseSeekAt >= LOOK_MS
+            if (retrySlot) collapseSeekAt = now
+            if (!heldView || !heldParent || (slot != null && !heldSlot) || retrySlot) holdCurrent(view)
             ensureArt(view, now)
         } else {
             releaseHeld()
@@ -394,17 +459,47 @@ internal object DouyinBottomSlot {
     }
 
     /**
-     * Transparent, still VISIBLE, still in the action column. The column does not
-     * reflow: collapsing the slot (GONE or height 0) makes isShown() false and
-     * Douyin stops the animator and the cover load.
+     * The direct child of the right-hand action column that contains [disc].
+     * That is the view whose height is the empty gap.
+     */
+    private fun columnSlot(disc: View): View? {
+        var node: View = disc
+        var depth = 0
+        while (depth++ < 8) {
+            val parent = node.parent as? ViewGroup ?: return null
+            if (parent is GlassHostLayout) return null
+            if (isActionColumn(parent)) return node
+            node = parent
+        }
+        return null
+    }
+
+    /** A tall, narrow stack on the right of the screen: the like/comment/share column. */
+    private fun isActionColumn(group: ViewGroup): Boolean {
+        if (group.childCount < 3) return false
+        val width = group.width
+        val height = group.height
+        if (width <= 0 || height < width * 2) return false
+        val loc = IntArray(2)
+        group.getLocationOnScreen(loc)
+        val center = loc[0] + width / 2
+        return center > group.resources.displayMetrics.widthPixels * 0.62f
+    }
+
+    /**
+     * Transparent, still VISIBLE, still attached. The column slot measures to
+     * height 0 so the buttons above it move down. GONE is not used: that makes
+     * isShown() false and the cover loader stops.
      */
     private fun holdCurrent(view: View) {
-        val targets = ArrayList<View>(2)
+        val slot = columnSlot(view)
+        val targets = ArrayList<View>(3)
         targets.add(view)
         val parent = view.parent
         if (parent is View && parent.javaClass.simpleName == "MusicCoverContainerLayout") {
             targets.add(parent)
         }
+        if (slot != null && targets.none { it === slot }) targets.add(slot)
         val keep = ArrayList<HeldDisc>(held.size)
         for (item in held) {
             if (targets.any { it === item.view }) keep.add(item) else restore(item)
@@ -417,29 +512,122 @@ internal object DouyinBottomSlot {
             val attach = object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: View) {
                     watchDraw(v, listener, add = true)
+                    held.firstOrNull { it.collapse && it.view === v }?.let { squashSlot(it, rememberIncoming = false) }
                 }
                 override fun onViewDetachedFromWindow(v: View) {
                     watchDraw(v, listener, add = false)
                 }
             }
-            val item = HeldDisc(target, target.alpha, target.visibility, listener, attach)
+            val lp = target.layoutParams as? ViewGroup.MarginLayoutParams
+            val collapse = slot != null && target === slot
+            val item = HeldDisc(
+                view = target,
+                alpha = target.alpha,
+                visibility = target.visibility,
+                listener = listener,
+                attach = attach,
+                collapse = collapse,
+                paddingTop = target.paddingTop,
+                paddingBottom = target.paddingBottom,
+                marginTop = lp?.topMargin ?: 0,
+                marginBottom = lp?.bottomMargin ?: 0,
+                layoutHeight = lp?.height ?: ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
             forced.add(target)
             held.add(item)
             target.addOnAttachStateChangeListener(attach)
             if (target.isAttachedToWindow) watchDraw(target, listener, add = true)
             if (target.visibility == View.INVISIBLE) target.visibility = View.VISIBLE
             if (target.alpha != 0f) target.alpha = 0f
+            if (collapse) squashSlot(item, rememberIncoming = false)
             Xposed.log(
                 "[OfflineGlass][BottomSlot] disc hide=alpha0 ${target.javaClass.simpleName} " +
-                    "wasVis=${item.visibility} wasAlpha=${item.alpha}",
+                    "wasVis=${item.visibility} wasAlpha=${item.alpha}" +
+                    if (collapse) " collapse=height0" else "",
             )
         }
+        publishCollapsed()
+        if (slot == null) {
+            if (!loggedCollapseMiss) {
+                loggedCollapseMiss = true
+                Xposed.log(
+                    "[OfflineGlass][BottomSlot] disc collapse=miss parent=${view.parent?.javaClass?.simpleName}",
+                )
+            }
+        } else {
+            loggedCollapseMiss = false
+            val parentName = slot.parent?.javaClass?.simpleName
+            Xposed.log(
+                "[OfflineGlass][BottomSlot] disc collapse=height0 ${slot.javaClass.simpleName} " +
+                    "parent=$parentName margins=${slotMargin(slot)}",
+            )
+        }
+    }
+
+    /** Drop the slot's vertical footprint. The view stays VISIBLE and attached. */
+    private fun squashSlot(item: HeldDisc, rememberIncoming: Boolean) {
+        val view = item.view
+        if (view.paddingTop != 0 || view.paddingBottom != 0) {
+            view.setPadding(view.paddingLeft, 0, view.paddingRight, 0)
+        }
+        val lp = view.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        if (rememberIncoming && (lp.topMargin != 0 || lp.bottomMargin != 0)) {
+            item.marginTop = lp.topMargin
+            item.marginBottom = lp.bottomMargin
+        }
+        // Leave layout height as wrap_content. Forcing it to 0 makes the parent
+        // measure the cover at 0 before the image can load. The measure hook
+        // reports 0 only after that pass, which is what closes the gap.
+        val marginChanged = lp.topMargin != 0 || lp.bottomMargin != 0
+        if (!marginChanged) {
+            if (view.measuredHeight == 0 && view.height == 0) collapseNudges = 0
+            else requestCollapseLayout(view)
+            return
+        }
+        zeroingLayout = true
+        try {
+            lp.topMargin = 0
+            lp.bottomMargin = 0
+        } finally {
+            zeroingLayout = false
+        }
+        view.requestLayout()
+    }
+
+    private fun requestCollapseLayout(view: View) {
+        if (collapseNudges > 8) {
+            if (collapseNudges == 9) {
+                collapseNudges = 10
+                Xposed.log(
+                    "[OfflineGlass][BottomSlot] disc collapse=stuck " +
+                        "${view.javaClass.simpleName} laid=${view.width}x${view.height} " +
+                        "measured=${view.measuredWidth}x${view.measuredHeight}",
+                )
+            }
+            return
+        }
+        val now = SystemClock.uptimeMillis()
+        if (now - collapseLayoutAt < 50L) return
+        collapseLayoutAt = now
+        collapseNudges++
+        view.requestLayout()
+    }
+
+    private fun slotMargin(view: View): String {
+        val lp = view.layoutParams as? ViewGroup.MarginLayoutParams ?: return "0,0"
+        return "${lp.topMargin},${lp.bottomMargin}"
+    }
+
+    private fun publishCollapsed() {
+        collapsedSlots = held.filter { it.collapse }.map { it.view }.toTypedArray()
     }
 
     private fun keepAwake(view: View) = ViewTreeObserver.OnPreDrawListener {
         if (!forced.contains(view)) return@OnPreDrawListener true
         if (view.visibility == View.INVISIBLE) view.visibility = View.VISIBLE
         if (view.alpha != 0f) view.alpha = 0f
+        val item = held.firstOrNull { it.collapse && it.view === view }
+        if (item != null) squashSlot(item, rememberIncoming = false)
         true
     }
 
@@ -450,10 +638,13 @@ internal object DouyinBottomSlot {
     }
 
     private fun releaseHeld() {
-        if (held.isEmpty()) return
+        if (held.isEmpty() && collapsedSlots.isEmpty()) return
         val copy = ArrayList(held)
         held.clear()
+        collapsedSlots = emptyArray()
         spinView = null
+        loggedCollapseMiss = false
+        collapseNudges = 0
         for (item in copy) restore(item)
     }
 
@@ -466,6 +657,25 @@ internal object DouyinBottomSlot {
         if (view.visibility == View.VISIBLE && item.visibility == View.INVISIBLE) {
             view.visibility = item.visibility
         }
+        if (!item.collapse) return
+        if (view.paddingTop != item.paddingTop || view.paddingBottom != item.paddingBottom) {
+            view.setPadding(view.paddingLeft, item.paddingTop, view.paddingRight, item.paddingBottom)
+        }
+        val lp = view.layoutParams as? ViewGroup.MarginLayoutParams
+        if (lp != null) {
+            zeroingLayout = true
+            try {
+                lp.topMargin = item.marginTop
+                lp.bottomMargin = item.marginBottom
+                lp.height = item.layoutHeight
+            } finally {
+                zeroingLayout = false
+            }
+        }
+        view.requestLayout()
+        Xposed.log(
+            "[OfflineGlass][BottomSlot] disc collapse=restore ${view.javaClass.simpleName}",
+        )
     }
 
     private class HeldDisc(
@@ -474,6 +684,12 @@ internal object DouyinBottomSlot {
         val visibility: Int,
         val listener: ViewTreeObserver.OnPreDrawListener,
         val attach: View.OnAttachStateChangeListener,
+        val collapse: Boolean,
+        val paddingTop: Int,
+        val paddingBottom: Int,
+        var marginTop: Int,
+        var marginBottom: Int,
+        var layoutHeight: Int,
     )
 
     /**
