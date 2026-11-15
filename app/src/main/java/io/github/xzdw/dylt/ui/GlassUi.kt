@@ -2480,7 +2480,7 @@ private fun GlassRightSlotTypeChoice(
     val options = listOf(GlassConfig.RIGHT_SLOT_MUSIC to "音乐转盘")
     Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
         Text(
-            "右侧按钮内容。音乐转盘是原控件的代理：滑到下一条会改绑当前页的封面。原控件留在树上继续加载，占位高度收成 0；列本身不回流时，上面的按钮再下移补上。底栏圆钮自己按约 8 秒一圈转，视频暂停时停下。点击仍转发给原控件。",
+            "右侧按钮内容。音乐转盘是原控件的代理：滑到下一条会改绑当前页的封面。原控件留在树上继续加载。只把右侧窄列里的小格子收成高度 0；列不回流时，也只下移这条窄列里的按钮。底栏圆钮自己按约 8 秒一圈转，视频暂停时停下。点击仍转发给原控件。",
             color = palette.secondary,
             fontSize = 12.sp,
         )

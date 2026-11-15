@@ -32,10 +32,12 @@ import kotlin.math.max
  * The real MusicCoverView stays in the feed item. Reparenting it into the glass host
  * pulls it out of the recycled page that loads the cover. The feed pager keeps the
  * previous page's cover attached, so the proxy rebinds to whichever cover belongs
- * to the page currently on screen. While the right circle is the disc, that page's
- * column slot stays VISIBLE and attached so the cover drawable keeps loading, but
- * the slot measures to height 0. If the column then still leaves a hole, the
- * buttons above the disc shift down by the freed height. The circle spins on its own.
+ * to the page currently on screen. While the right circle is the disc, the nearest
+ * small ancestor in the narrow right-hand column stays VISIBLE and attached so the
+ * cover drawable keeps loading, but that slot measures to height 0. A view wider
+ * than about 40% of the screen or taller than about half of it is never collapsed
+ * or moved. If the column then still leaves a hole, only the narrow buttons above
+ * the disc shift down. The circle spins on its own.
  */
 internal object DouyinBottomSlot {
     private const val LOOK_MS = 400L
@@ -48,6 +50,14 @@ internal object DouyinBottomSlot {
     private const val SYNC_DEG = 0.2f
     /** Same hold as the feed's static-video detector. Longer than one dropped frame. */
     private const val PAUSE_HOLD_MS = 250L
+    /** Disc row we are willing to collapse. Larger than this is not the disc slot. */
+    private const val SLOT_MAX_W = 0.35f
+    private const val SLOT_MAX_H = 0.30f
+    /** Hard stop. A view this big is the page, the pager, or the video. */
+    private const val TOUCH_MAX_W = 0.40f
+    private const val TOUCH_MAX_H = 0.50f
+    /** The action column itself. Tall is normal; wide means we climbed too far. */
+    private const val COLUMN_MAX_W = 0.35f
 
     /** The original publish circle. Driven by 显示加号 (`show_post`). */
     @Volatile var showPlus: Boolean = true
@@ -92,6 +102,7 @@ internal object DouyinBottomSlot {
     private var collapseSeekAt = 0L
     private var collapseNudges = 0
     private var loggedCollapseMiss = false
+    private var unsafeLog = ""
     private var zeroingLayout = false
     /** translationY this module added, so a later pass can remove just that part. */
     private val shiftApplied = WeakHashMap<View, Float>()
@@ -171,6 +182,7 @@ internal object DouyinBottomSlot {
                 override fun beforeHookedMethod(param: MethodHook.MethodHookParam) {
                     val view = param.thisObject as? View ?: return
                     if (!forced.contains(view)) return
+                    if (exceedsTouchLimit(view)) return
                     val alpha = param.args.getOrNull(0) as? Float ?: return
                     if (alpha != 0f) param.args[0] = 0f
                 }
@@ -179,6 +191,7 @@ internal object DouyinBottomSlot {
                 override fun beforeHookedMethod(param: MethodHook.MethodHookParam) {
                     val view = param.thisObject as? View ?: return
                     if (!forced.contains(view)) return
+                    if (exceedsTouchLimit(view)) return
                     val visibility = param.args.getOrNull(0) as? Int ?: return
                     // INVISIBLE makes isShown() false and Douyin pauses cover loading.
                     // GONE is Douyin collapsing the slot itself; leave that alone.
@@ -203,9 +216,16 @@ internal object DouyinBottomSlot {
                     }
                     if (!hit) return
                     val natural = view.measuredHeight
+                    val measuredW = view.measuredWidth
+                    if (overSlotBudget(view, measuredW, natural)) {
+                        logUnsafe(
+                            "measure ${view.javaClass.simpleName} ${measuredW}x$natural",
+                        )
+                        return
+                    }
                     if (natural > 0) rememberFreed(view, natural)
                     if (natural == 0) return
-                    runCatching { setMeasuredDimension(view, view.measuredWidth, 0) }
+                    runCatching { setMeasuredDimension(view, measuredW, 0) }
                 }
             })
             Xposed.hookAllMethods(View::class.java, "setLayoutParams", object : MethodHook() {
@@ -265,7 +285,9 @@ internal object DouyinBottomSlot {
         }
         val now = SystemClock.uptimeMillis()
         pruneHeld()
-        val cached = discRef?.get()
+        releaseOversized()
+        val cached = discRef?.get()?.takeIf { coverBoundsOk(it) }
+        if (cached == null) discRef = null
         // The collapsed cover has no height and the previous page stays attached,
         // so "still attached" is not "still the selected video". Re-resolve when
         // that page no longer owns the screen, and on a short timer otherwise.
@@ -273,7 +295,7 @@ internal object DouyinBottomSlot {
         val due = if (pageChanged) now - lookedAt >= RESCAN_MS else now - lookedAt >= LOOK_MS
         if (due) {
             lookedAt = now
-            val found = findDisc(root)
+            val found = findDisc(root)?.takeIf { coverBoundsOk(it) }
             if (found != null && found !== cached) rebindDisc(host, cached, found)
         }
         val view = discRef?.get() ?: return
@@ -473,78 +495,160 @@ internal object DouyinBottomSlot {
     }
 
     /**
-     * The direct child of the right-hand action column that contains [disc].
-     * Walks to the outermost column so an inner wrapper is not the thing that
-     * collapses while the real slot keeps its height. If no column matches,
-     * the disc row itself (the child of the first much taller parent) is used.
+     * Nearest ancestor of [disc] that is still the disc row: at most about 35% of
+     * the screen wide and 30% tall, whose parent is the narrow column on the
+     * right. Stops at the first view that is larger than that. A full-screen
+     * page is not a column, and this never returns one of its children.
      */
     private fun columnSlot(disc: View): View? {
         var node: View = disc
-        var chosen: View? = null
-        var depth = 0
-        while (depth++ < 10) {
-            val parent = node.parent as? ViewGroup ?: break
-            if (parent is GlassHostLayout) break
-            if (isActionColumn(parent) && isDiscSlice(node, parent)) chosen = node
-            node = parent
-        }
-        return chosen ?: discSlice(disc)
-    }
-
-    /** A vertical stack on the right of the screen: the avatar/like/comment/share column. */
-    private fun isActionColumn(group: ViewGroup): Boolean {
-        if (group.childCount < 2) return false
-        val width = group.width
-        val height = group.height
-        if (width <= 0 || height < width * 1.4f) return false
-        val loc = IntArray(2)
-        group.getLocationOnScreen(loc)
-        val screenW = group.resources.displayMetrics.widthPixels
-        val center = loc[0] + width / 2
-        if (center <= screenW * 0.55f || loc[0] >= screenW) return false
-        val visible = ArrayList<View>(group.childCount)
-        for (index in 0 until group.childCount) {
-            val child = group.getChildAt(index) ?: continue
-            if (child.visibility == View.GONE || child.height <= 0) continue
-            visible.add(child)
-        }
-        if (visible.size < 2) return false
-        visible.sortBy { it.top }
-        var stacked = 0
-        for (index in 1 until visible.size) {
-            val previous = visible[index - 1]
-            if (visible[index].top >= previous.top + previous.height / 2) stacked++
-        }
-        return stacked >= 1
-    }
-
-    /** The disc row, not a child that is most of the column. */
-    private fun isDiscSlice(node: View, parent: ViewGroup): Boolean {
-        val childH = if (node.height > 0) node.height else node.measuredHeight
-        val parentH = parent.height
-        if (parentH <= 0 || childH <= 0) return true
-        return childH < parentH * 0.6f
-    }
-
-    /**
-     * The disc widget when the column heuristic misses. Stops at the child of
-     * the first parent that is clearly taller than the disc row.
-     */
-    private fun discSlice(disc: View): View? {
-        var node: View = disc
         var depth = 0
         while (depth++ < 8) {
-            val parent = node.parent as? ViewGroup ?: return if (node === disc) null else node
-            if (parent is GlassHostLayout) return if (node === disc) null else node
-            val childH = if (node.height > 0) node.height else node.measuredHeight
-            if (parent.height > 0 && childH > 0 &&
-                parent.height > childH * 2 && parent.height > parent.width
-            ) {
-                return node
+            val parent = node.parent as? ViewGroup ?: return null
+            if (parent is GlassHostLayout) return null
+            if (node !== disc) {
+                if (exceedsTouchLimit(node)) {
+                    logUnsafe("ancestor ${node.javaClass.simpleName} ${node.width}x${node.height}")
+                    return null
+                }
+                if (withinSlot(node) && narrowColumn(parent)) return node
+                val w = max(node.width, node.measuredWidth)
+                val h = max(node.height, node.measuredHeight)
+                if (w > 0 && h > 0 && !withinSlot(node)) {
+                    logUnsafe("slot ${node.javaClass.simpleName} ${w}x$h")
+                    return null
+                }
             }
             node = parent
         }
-        return if (node === disc) null else node
+        return null
+    }
+
+    /** Wider than ~40% of the screen, or taller than ~half of it. Unknown size is not "too big". */
+    private fun exceedsTouchLimit(view: View): Boolean {
+        val sw = screenW(view)
+        val sh = screenH(view)
+        if (sw <= 0 || sh <= 0) return true
+        val w = max(view.width, view.measuredWidth)
+        val h = max(view.height, view.measuredHeight)
+        if (w <= 0 && h <= 0) return false
+        return w > sw * TOUCH_MAX_W || h > sh * TOUCH_MAX_H
+    }
+
+    /** Laid-out disc row. Height 0 is the collapsed slot; a missing width is not. */
+    private fun withinSlot(view: View): Boolean {
+        val sw = screenW(view)
+        val sh = screenH(view)
+        if (sw <= 0 || sh <= 0) return false
+        val w = max(view.width, view.measuredWidth)
+        val h = max(view.height, view.measuredHeight)
+        if (w <= 0) return false
+        if (w > sw * SLOT_MAX_W || h > sh * SLOT_MAX_H) return false
+        return !exceedsTouchLimit(view)
+    }
+
+    /** Measured size we must not force to height 0. */
+    private fun overSlotBudget(view: View, width: Int, height: Int): Boolean {
+        val sw = screenW(view)
+        val sh = screenH(view)
+        if (sw <= 0 || sh <= 0) return true
+        if (width > sw * TOUCH_MAX_W || height > sh * TOUCH_MAX_H) return true
+        return width > sw * SLOT_MAX_W || height > sh * SLOT_MAX_H
+    }
+
+    /**
+     * The right-hand action column. It may be tall. It may not be wide, and it
+     * has to sit on the right half. This view itself is never collapsed.
+     */
+    private fun narrowColumn(group: ViewGroup): Boolean {
+        val sw = screenW(group)
+        if (sw <= 0 || group.width <= 0 || group.childCount < 2) return false
+        if (group.width > sw * COLUMN_MAX_W) return false
+        val loc = IntArray(2)
+        group.getLocationOnScreen(loc)
+        if (loc[0] < sw * 0.45f || loc[0] >= sw) return false
+        val center = loc[0] + group.width / 2f
+        return center >= sw * 0.50f
+    }
+
+    private fun stillSafeSlot(view: View): Boolean {
+        val parent = view.parent as? ViewGroup ?: return false
+        return withinSlot(view) && narrowColumn(parent) && !exceedsTouchLimit(view)
+    }
+
+    /** A cover we are willing to mirror. A full-screen view is not a disc. */
+    private fun coverBoundsOk(view: View): Boolean {
+        if (!view.isAttachedToWindow || exceedsTouchLimit(view)) return false
+        val sw = screenW(view)
+        val sh = screenH(view)
+        if (sw <= 0 || sh <= 0) return false
+        val w = max(view.width, view.measuredWidth)
+        val h = max(view.height, view.measuredHeight)
+        if (w <= 0 || w > sw * SLOT_MAX_W || h > sh * SLOT_MAX_H) return false
+        val loc = IntArray(2)
+        view.getLocationOnScreen(loc)
+        val cx = loc[0] + w / 2
+        return cx >= sw * 0.55f && cx <= sw
+    }
+
+    private fun narrowSibling(child: View): Boolean {
+        if (child.visibility == View.GONE || exceedsTouchLimit(child)) return false
+        val sw = screenW(child)
+        val sh = screenH(child)
+        if (sw <= 0 || sh <= 0 || child.width <= 0 || child.height <= 0) return false
+        if (child.width > sw * SLOT_MAX_W || child.height > sh * TOUCH_MAX_H) return false
+        val loc = IntArray(2)
+        child.getLocationOnScreen(loc)
+        if (loc[0] < sw * 0.45f || loc[0] >= sw) return false
+        val center = loc[0] + child.width / 2f
+        return center >= sw * 0.50f
+    }
+
+    private fun screenW(view: View) = view.resources.displayMetrics.widthPixels
+
+    private fun screenH(view: View) = view.resources.displayMetrics.heightPixels
+
+    private fun logUnsafe(detail: String) {
+        if (detail == unsafeLog) return
+        unsafeLog = detail
+        Xposed.log("[OfflineGlass][BottomSlot] disc collapse=unsafe $detail")
+    }
+
+    /** Drop a hold that turned out to be bigger than the disc row. */
+    private fun releaseOne(view: View) {
+        val item = held.firstOrNull { it.view === view } ?: return
+        held.remove(item)
+        publishCollapsed()
+        restore(item)
+    }
+
+    /** Undo a collapse or a shift that is no longer inside the right column. */
+    private fun releaseOversized() {
+        val bad = ArrayList<HeldDisc>()
+        for (item in held) {
+            val oversized = exceedsTouchLimit(item.view)
+            val badSlot = item.collapse && !stillSafeSlot(item.view)
+            if (oversized || badSlot) bad.add(item)
+        }
+        if (bad.isNotEmpty()) {
+            for (item in bad) held.remove(item)
+            publishCollapsed()
+            for (item in bad) {
+                logUnsafe(
+                    "release ${item.view.javaClass.simpleName} " +
+                        "${item.view.width}x${item.view.height}",
+                )
+                restore(item)
+            }
+        }
+        val stale = ArrayList<View>()
+        for (view in shiftApplied.keys) {
+            if (!narrowSibling(view)) stale.add(view)
+        }
+        for (view in stale) {
+            val already = shiftApplied.remove(view) ?: continue
+            view.translationY = view.translationY - already
+        }
     }
 
     /**
@@ -566,6 +670,12 @@ internal object DouyinBottomSlot {
         // Detached pages are released by pruneHeld.
         for (target in targets) {
             if (held.any { it.view === target }) continue
+            if (exceedsTouchLimit(target)) {
+                logUnsafe("hold ${target.javaClass.simpleName} ${target.width}x${target.height}")
+                continue
+            }
+            val collapse = slot != null && target === slot && stillSafeSlot(target)
+            if (target === slot && !collapse) continue
             val listener = keepAwake(target)
             val attach = object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: View) {
@@ -577,7 +687,6 @@ internal object DouyinBottomSlot {
                 }
             }
             val lp = target.layoutParams as? ViewGroup.MarginLayoutParams
-            val collapse = slot != null && target === slot
             val item = HeldDisc(
                 view = target,
                 alpha = target.alpha,
@@ -607,7 +716,7 @@ internal object DouyinBottomSlot {
         }
         publishCollapsed()
         if (slot == null) {
-            if (!loggedCollapseMiss) {
+            if (!loggedCollapseMiss && unsafeLog.isEmpty()) {
                 loggedCollapseMiss = true
                 Xposed.log(
                     "[OfflineGlass][BottomSlot] disc collapse=miss parent=${view.parent?.javaClass?.simpleName}",
@@ -628,6 +737,7 @@ internal object DouyinBottomSlot {
     /** Drop the slot's vertical footprint. The view stays VISIBLE and attached. */
     private fun squashSlot(item: HeldDisc, rememberIncoming: Boolean) {
         val view = item.view
+        if (!stillSafeSlot(view)) return
         if (view.paddingTop != 0 || view.paddingBottom != 0) {
             view.setPadding(view.paddingLeft, 0, view.paddingRight, 0)
         }
@@ -685,10 +795,20 @@ internal object DouyinBottomSlot {
 
     private fun keepAwake(view: View) = ViewTreeObserver.OnPreDrawListener {
         if (!forced.contains(view)) return@OnPreDrawListener true
+        if (exceedsTouchLimit(view)) {
+            logUnsafe("keep ${view.javaClass.simpleName} ${view.width}x${view.height}")
+            releaseOne(view)
+            return@OnPreDrawListener true
+        }
         if (view.visibility == View.INVISIBLE) view.visibility = View.VISIBLE
         if (view.alpha != 0f) view.alpha = 0f
         val item = held.firstOrNull { it.collapse && it.view === view }
         if (item != null) {
+            if (!stillSafeSlot(view)) {
+                logUnsafe("keep ${view.javaClass.simpleName} ${view.width}x${view.height}")
+                releaseOne(view)
+                return@OnPreDrawListener true
+            }
             squashSlot(item, rememberIncoming = false)
             settleShift(view)
         }
@@ -709,6 +829,7 @@ internal object DouyinBottomSlot {
         spinView = null
         loggedCollapseMiss = false
         collapseNudges = 0
+        unsafeLog = ""
         shiftLogged.clear()
         for (item in copy) restore(item)
         clearShift(parent = null, all = true)
@@ -782,6 +903,10 @@ internal object DouyinBottomSlot {
      * The previous cover stays in the tree; only the binding changes.
      */
     private fun rebindDisc(host: View, from: View?, to: View) {
+        if (!coverBoundsOk(to)) {
+            logUnsafe("rebind ${to.javaClass.simpleName} ${to.width}x${to.height}")
+            return
+        }
         discRef = WeakReference(to)
         artKey = 0
         artTriedKey = 0
@@ -822,17 +947,21 @@ internal object DouyinBottomSlot {
      */
     private fun settleShift(slot: View) {
         val parent = slot.parent as? ViewGroup ?: return
+        if (!stillSafeSlot(slot) || !narrowColumn(parent)) {
+            clearShift(parent, all = false)
+            return
+        }
         val item = held.firstOrNull { it.collapse && it.view === slot } ?: return
-        val cap = (slot.resources.displayMetrics.density * 160f).toInt().coerceAtLeast(1)
-        val freed = item.naturalHeight.coerceAtMost(cap)
+        val capPx = (slot.resources.displayMetrics.density * 160f).toInt().coerceAtLeast(1)
+        val capFrac = (screenH(slot) * SLOT_MAX_H).toInt().coerceAtLeast(1)
+        val freed = item.naturalHeight.coerceAtMost(minOf(capPx, capFrac))
         if (freed <= 0) return
         val above = ArrayList<View>(parent.childCount)
         var lowest = Int.MIN_VALUE
         val slotAnchor = if (slot.height > 0) slot.top + slot.height / 2 else slot.top
         for (index in 0 until parent.childCount) {
             val child = parent.getChildAt(index) ?: continue
-            if (child === slot || child.visibility == View.GONE) continue
-            if (parent.height > 0 && child.height > parent.height * 0.6f) continue
+            if (child === slot || !narrowSibling(child)) continue
             val center = (child.top + child.bottom) / 2
             if (center >= slotAnchor) continue
             above.add(child)
@@ -901,19 +1030,14 @@ internal object DouyinBottomSlot {
         var visited = 0
         var best: View? = null
         var bestScore = 0L
-        var goneOnPage: View? = null
         while (stack.isNotEmpty() && visited++ < WALK_BUDGET) {
             val view = stack.removeLast()
             if (view is GlassHostLayout) continue
-            if (view.javaClass.simpleName == "MusicCoverView") {
+            if (view.javaClass.simpleName == "MusicCoverView" && coverBoundsOk(view)) {
                 val score = pageScore(view)
                 if (score > bestScore) {
                     best = view
                     bestScore = score
-                } else if (goneOnPage == null && view.visibility == View.GONE &&
-                    view.isAttachedToWindow && ownsScreenCenter(view)
-                ) {
-                    goneOnPage = view
                 }
             }
             if (view is ViewGroup) {
@@ -922,7 +1046,7 @@ internal object DouyinBottomSlot {
                 }
             }
         }
-        return best ?: goneOnPage
+        return best
     }
 
     /** Innermost near-fullscreen ancestor: the feed page, not the window decor. */
@@ -960,7 +1084,7 @@ internal object DouyinBottomSlot {
      * Distance to the screen center breaks a tie when every cover shares one ancestor.
      */
     private fun pageScore(view: View): Long {
-        if (!view.isAttachedToWindow || view.visibility == View.GONE) return 0L
+        if (!coverBoundsOk(view) || view.visibility == View.GONE) return 0L
         val page = pageAncestor(view) ?: view
         val metrics = view.resources.displayMetrics
         val sw = metrics.widthPixels
