@@ -75,7 +75,6 @@ object ConfigContract {
     const val KEY_SELECTED_ACCENT = "selected_accent"
     const val KEY_LIQUID_GLASS_ENABLED = "liquid_glass_enabled"
     const val KEY_ANTI_BURN_IN = "anti_burn_in"
-    const val KEY_BOTTOM_GRADIENT_BLUR_ENABLED = "bottom_gradient_blur_enabled"
     const val KEY_OUTLINE_ENABLED = "outline_enabled"
     const val KEY_CONTROL_DROP = "control_drop"
 
@@ -138,7 +137,7 @@ object ConfigContract {
     const val KEY_ACTION_SCALE = "action_scale"
     const val KEY_ACTION_OFFSET_Y = "action_offset_y"
 
-    /** 评论区磨砂玻璃。默认关闭，输入栏跟随面板。 */
+    /** 评论区磨砂玻璃。默认关闭；开启后输入栏始终跟随面板做成玻璃胶囊。 */
     const val KEY_COMMENT_GLASS = "comment_glass"
     const val KEY_COMMENT_BLUR = "comment_blur"
     const val KEY_COMMENT_TINT = "comment_tint"
@@ -147,7 +146,6 @@ object ConfigContract {
     const val KEY_COMMENT_CORNER = "comment_corner"
     const val KEY_COMMENT_OUTLINE = "comment_outline"
     const val KEY_COMMENT_HIGHLIGHT = "comment_highlight"
-    const val KEY_COMMENT_INPUT = "comment_input"
     /** 输入框不透明度: capsule and icon-circle fill, independent of the sheet. Default 72%. */
     const val KEY_COMMENT_INPUT_TINT = "comment_input_tint"
 

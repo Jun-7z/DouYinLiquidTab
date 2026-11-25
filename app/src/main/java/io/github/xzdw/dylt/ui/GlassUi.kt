@@ -862,6 +862,25 @@ private fun GlassHome(
                     backdrop,
                     palette,
                 ) { actions.setGlassConfig(config.copy(topBarLiquidGlass = it)) }
+                GlassSwitchRow(
+                    "操作列液态玻璃",
+                    if (config.actionGlassEnabled) {
+                        "点赞、评论、收藏、分享、头像环和唱片本身是玻璃，按钮背后不铺底"
+                    } else {
+                        "操作列保持抖音原样"
+                    },
+                    config.actionGlassEnabled,
+                    backdrop,
+                    palette,
+                ) { actions.setGlassConfig(config.copy(actionGlassEnabled = it)) }
+                GlassSwitchRow(
+                    "评论区磨砂玻璃",
+                    if (config.commentGlassEnabled) "评论面板透出背后的视频，文字仍可读"
+                    else "评论面板保持抖音原样",
+                    config.commentGlassEnabled,
+                    backdrop,
+                    palette,
+                ) { actions.setGlassConfig(config.copy(commentGlassEnabled = it)) }
             }
         }
         item { SectionLabel("使用指南", palette) }
@@ -1967,13 +1986,6 @@ private fun GlassSettingsSubpage(
                         backdrop,
                         palette,
                     ) { actions.setGlassConfig(config.copy(commentGlassEnabled = it)) }
-                    GlassSwitchRow(
-                        "输入栏也用玻璃",
-                        if (config.commentInputGlass) "只留胶囊和旁边的小圆，底条消失" else "输入条保持原样",
-                        config.commentInputGlass,
-                        backdrop,
-                        palette,
-                    ) { actions.setGlassConfig(config.copy(commentInputGlass = it)) }
                     GlassSlider(
                         "模糊半径\n0–40",
                         config.commentBlurRadius,

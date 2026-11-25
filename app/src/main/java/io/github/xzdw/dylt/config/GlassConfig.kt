@@ -92,8 +92,6 @@ data class GlassConfig(
      * slow enough to be imperceptible and only redraws once per interval.
      */
     val antiBurnIn: Boolean = true,
-    /** Global gate for page-bottom progressive blur veils. */
-    val bottomGradientBlurEnabled: Boolean = false,
     val outlineEnabled: Boolean = true,
     /**
      * "整页下移": cap the native control lift by the measured widget edge instead of the
@@ -181,7 +179,6 @@ data class GlassConfig(
     val commentCornerRadiusDp: Float = 18f,
     val commentOutlineEnabled: Boolean = true,
     val commentHighlight: Float = 0.35f,
-    val commentInputGlass: Boolean = true,
     /**
      * 输入框不透明度: fill of the input capsule and the icon-button circles.
      * Independent of [commentTintAlpha]. 0.72 matches the 1.7.11 look, which used the
@@ -248,7 +245,6 @@ data class GlassConfig(
         iconOnly = bottomBarStyle.coerceIn(BOTTOM_BAR_STYLE_ICON_TEXT, BOTTOM_BAR_STYLE_TEXT_ONLY) ==
             BOTTOM_BAR_STYLE_ICON_ONLY,
         customAccentColor = customAccentColor or Color.BLACK,
-        bottomGradientBlurEnabled = false,
         // 顶栏参数: a range floating around the shipped value of each knob — the margin around its
         // own default, the scale around the shipped 1.0.
         topBarMarginOffsetDp = topBarMarginOffsetDp.coerceIn(
@@ -319,7 +315,6 @@ data class GlassConfig(
         putBoolean(ConfigContract.KEY_SELECTED_ACCENT, value.selectedAccent)
         putBoolean(ConfigContract.KEY_LIQUID_GLASS_ENABLED, value.liquidGlassEnabled)
         putBoolean(ConfigContract.KEY_ANTI_BURN_IN, value.antiBurnIn)
-        putBoolean(ConfigContract.KEY_BOTTOM_GRADIENT_BLUR_ENABLED, value.bottomGradientBlurEnabled)
         putBoolean(ConfigContract.KEY_OUTLINE_ENABLED, value.outlineEnabled)
         putBoolean(ConfigContract.KEY_CONTROL_DROP, value.controlDrop)
         putBoolean(ConfigContract.KEY_TOP_BAR_LIQUID, value.topBarLiquidGlass)
@@ -347,7 +342,6 @@ data class GlassConfig(
         putFloat(ConfigContract.KEY_COMMENT_CORNER, value.commentCornerRadiusDp)
         putBoolean(ConfigContract.KEY_COMMENT_OUTLINE, value.commentOutlineEnabled)
         putFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
-        putBoolean(ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
         putFloat(ConfigContract.KEY_COMMENT_INPUT_TINT, value.commentInputTintAlpha)
         putBoolean(ConfigContract.KEY_SHOW_RIGHT_SLOT, value.showRightSlot)
         putString(ConfigContract.KEY_RIGHT_SLOT_TYPE, value.rightSlotType)
@@ -521,7 +515,6 @@ data class GlassConfig(
                 selectedAccent = bundle.getBoolean(ConfigContract.KEY_SELECTED_ACCENT, false),
                 liquidGlassEnabled = bundle.getBoolean(ConfigContract.KEY_LIQUID_GLASS_ENABLED, true),
                 antiBurnIn = bundle.getBoolean(ConfigContract.KEY_ANTI_BURN_IN, true),
-                bottomGradientBlurEnabled = false,
                 outlineEnabled = bundle.getBoolean(ConfigContract.KEY_OUTLINE_ENABLED, true),
                 controlDrop = bundle.getBoolean(ConfigContract.KEY_CONTROL_DROP, false),
                 topBarLiquidGlass = bundle.getBoolean(ConfigContract.KEY_TOP_BAR_LIQUID, false),
@@ -550,7 +543,6 @@ data class GlassConfig(
                 commentCornerRadiusDp = bundle.getFloat(ConfigContract.KEY_COMMENT_CORNER, 18f),
                 commentOutlineEnabled = bundle.getBoolean(ConfigContract.KEY_COMMENT_OUTLINE, true),
                 commentHighlight = bundle.getFloat(ConfigContract.KEY_COMMENT_HIGHLIGHT, 0.35f),
-                commentInputGlass = bundle.getBoolean(ConfigContract.KEY_COMMENT_INPUT, true),
                 commentInputTintAlpha = bundle.getFloat(ConfigContract.KEY_COMMENT_INPUT_TINT, 0.72f),
                 showRightSlot = if (bundle.containsKey(ConfigContract.KEY_SHOW_RIGHT_SLOT)) {
                     bundle.getBoolean(ConfigContract.KEY_SHOW_RIGHT_SLOT, false)

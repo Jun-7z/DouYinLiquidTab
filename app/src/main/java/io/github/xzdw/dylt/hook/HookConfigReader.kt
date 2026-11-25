@@ -385,7 +385,6 @@ object HookConfigReader {
         val global = readConfig(p, GLOBAL, GlassConfig())
             .copy(
                 liquidGlassEnabled = p.getBoolean(ConfigContract.KEY_LIQUID_GLASS_ENABLED, true),
-                bottomGradientBlurEnabled = false,
                     outlineEnabled = p.getBoolean(ConfigContract.KEY_OUTLINE_ENABLED, true),
             )
         val spec = AppCatalog.forPackage(packageName)
@@ -438,7 +437,6 @@ object HookConfigReader {
             // 底栏显示样式 is a settings-page choice as well, and it owns the derived icon-only flag.
             bottomBarStyle = global.bottomBarStyle,
             publishIcon = global.publishIcon,
-            bottomGradientBlurEnabled = false,
         ).normalized()
     }
 
@@ -549,7 +547,6 @@ object HookConfigReader {
         nativeBlur = p.getBoolean(prefix + ConfigContract.KEY_NATIVE_BLUR, defaults.nativeBlur),
         selectedAccent = p.getBoolean(prefix + ConfigContract.KEY_SELECTED_ACCENT, defaults.selectedAccent),
         liquidGlassEnabled = defaults.liquidGlassEnabled,
-        bottomGradientBlurEnabled = defaults.bottomGradientBlurEnabled,
         outlineEnabled = defaults.outlineEnabled,
         // Global-only: the picked publish icon applies to every app that shows such a button.
         publishIcon = if (prefix == GLOBAL) {
@@ -609,9 +606,6 @@ object HookConfigReader {
         commentHighlight = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_HIGHLIGHT, defaults.commentHighlight)
         } else defaults.commentHighlight,
-        commentInputGlass = if (prefix == GLOBAL) {
-            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_INPUT, defaults.commentInputGlass)
-        } else defaults.commentInputGlass,
         commentInputTintAlpha = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_INPUT_TINT, defaults.commentInputTintAlpha)
         } else defaults.commentInputTintAlpha,

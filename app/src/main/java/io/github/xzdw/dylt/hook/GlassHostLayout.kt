@@ -659,7 +659,6 @@ class GlassHostLayout(
             backdropCapture = alphaScaled.backdropCapture &&
                 (alphaScaled.liquidGlassEnabled || alphaScaled.blurRadius > 0f),
             nativeBlur = false,
-            bottomGradientBlurEnabled = false,
         )
 
     }

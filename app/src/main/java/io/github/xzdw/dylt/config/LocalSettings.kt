@@ -19,7 +19,6 @@ enum class ColorMode(val value: String) {
 data class ManagerSettings(
     val colorMode: ColorMode,
     val liquidGlassEnabled: Boolean,
-    val bottomGradientBlurEnabled: Boolean,
     val outlineEnabled: Boolean,
     val glass: GlassConfig,
     val appEnabled: Map<String, Boolean>,
@@ -107,11 +106,9 @@ object LocalSettings {
     fun snapshot(context: Context): ManagerSettings {
         val p = prefs(context)
         val liquidGlassEnabled = p.getBoolean(ConfigContract.KEY_LIQUID_GLASS_ENABLED, true)
-        val bottomGradientBlurEnabled = false
         val outlineEnabled = p.getBoolean(ConfigContract.KEY_OUTLINE_ENABLED, true)
         val global = readConfig(p, GLOBAL, GlassConfig()).normalized().copy(
             liquidGlassEnabled = liquidGlassEnabled,
-            bottomGradientBlurEnabled = bottomGradientBlurEnabled,
             outlineEnabled = outlineEnabled,
         )
         val apps = AppCatalog.targets.associate { target ->
@@ -142,7 +139,6 @@ object LocalSettings {
                 lightAlpha = global.lightAlpha,
                 darkAlpha = global.darkAlpha,
                 darkBarHighlightStrength = global.darkBarHighlightStrength,
-                bottomGradientBlurEnabled = false,
                 publishIcon = global.publishIcon,
                 // Settings-page switch: keep it global so the per-app rows agree with the master.
                 hideMessageBadge = global.hideMessageBadge,
@@ -167,7 +163,6 @@ object LocalSettings {
         return ManagerSettings(
             colorMode = ColorMode.fromValue(p.getString("color_mode", ColorMode.SYSTEM.value)),
             liquidGlassEnabled = liquidGlassEnabled,
-            bottomGradientBlurEnabled = bottomGradientBlurEnabled,
             outlineEnabled = outlineEnabled,
             glass = global,
             appEnabled = apps,
@@ -196,11 +191,9 @@ object LocalSettings {
         val p = prefs(context)
         val canonicalPackage = AppCatalog.forPackage(packageName)?.packageName ?: packageName
         val liquidGlassEnabled = p.getBoolean(ConfigContract.KEY_LIQUID_GLASS_ENABLED, true)
-        val bottomGradientBlurEnabled = false
         val outlineEnabled = p.getBoolean(ConfigContract.KEY_OUTLINE_ENABLED, true)
         val global = readConfig(p, GLOBAL, GlassConfig()).copy(
             liquidGlassEnabled = liquidGlassEnabled,
-            bottomGradientBlurEnabled = bottomGradientBlurEnabled,
             outlineEnabled = outlineEnabled,
         )
         val defaults = defaultsFor(packageName, global)
@@ -219,7 +212,6 @@ object LocalSettings {
             darkAlpha = global.darkAlpha,
             darkBarHighlightStrength = global.darkBarHighlightStrength,
             liquidGlassEnabled = liquidGlassEnabled,
-            bottomGradientBlurEnabled = false,
             outlineEnabled = outlineEnabled,
             // Global-only like the other visual switches: the 去除发布按钮 toggle lives on the
             // settings page, and a stale per-app copy must not silently ignore it.
@@ -263,7 +255,6 @@ object LocalSettings {
         }
         if (!p.getBoolean(GLOBAL_DEFAULTS_V2, false)) {
             edit.putBoolean(GLOBAL_DEFAULTS_V2, true)
-                .putBoolean(ConfigContract.KEY_BOTTOM_GRADIENT_BLUR_ENABLED, false)
                 .putFloat(GLOBAL + ConfigContract.KEY_BLUR_RADIUS, 2f)
                 .putFloat(GLOBAL + ConfigContract.KEY_CORNER_RADIUS_PERCENT, 50f)
                 .putFloat(GLOBAL + ConfigContract.KEY_CORNER_SMOOTHING, -1f)
@@ -480,7 +471,6 @@ object LocalSettings {
         nativeBlur = p.getBoolean(prefix + ConfigContract.KEY_NATIVE_BLUR, defaults.nativeBlur),
         selectedAccent = p.getBoolean(prefix + ConfigContract.KEY_SELECTED_ACCENT, defaults.selectedAccent),
         liquidGlassEnabled = defaults.liquidGlassEnabled,
-        bottomGradientBlurEnabled = defaults.bottomGradientBlurEnabled,
         outlineEnabled = defaults.outlineEnabled,
         // Global-only: the picked publish icon applies to every app that shows such a button.
         publishIcon = if (prefix == GLOBAL) {
@@ -545,9 +535,6 @@ object LocalSettings {
         commentHighlight = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_HIGHLIGHT, defaults.commentHighlight)
         } else defaults.commentHighlight,
-        commentInputGlass = if (prefix == GLOBAL) {
-            p.getBoolean(GLOBAL + ConfigContract.KEY_COMMENT_INPUT, defaults.commentInputGlass)
-        } else defaults.commentInputGlass,
         commentInputTintAlpha = if (prefix == GLOBAL) {
             p.getFloat(GLOBAL + ConfigContract.KEY_COMMENT_INPUT_TINT, defaults.commentInputTintAlpha)
         } else defaults.commentInputTintAlpha,
@@ -623,7 +610,6 @@ object LocalSettings {
             putFloat(prefix + ConfigContract.KEY_COMMENT_CORNER, value.commentCornerRadiusDp)
             putBoolean(prefix + ConfigContract.KEY_COMMENT_OUTLINE, value.commentOutlineEnabled)
             putFloat(prefix + ConfigContract.KEY_COMMENT_HIGHLIGHT, value.commentHighlight)
-            putBoolean(prefix + ConfigContract.KEY_COMMENT_INPUT, value.commentInputGlass)
             putFloat(prefix + ConfigContract.KEY_COMMENT_INPUT_TINT, value.commentInputTintAlpha)
             putBoolean(prefix + ConfigContract.KEY_SHOW_RIGHT_SLOT, value.showRightSlot)
             putString(prefix + ConfigContract.KEY_RIGHT_SLOT_TYPE, value.rightSlotType)

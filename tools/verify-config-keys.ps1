@@ -12,11 +12,9 @@ param([string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path)
 $configRoot = Join-Path $RepoRoot 'app/src/main/java/io/github/xzdw/dylt/config'
 $readerPath = Join-Path $RepoRoot 'app/src/main/java/io/github/xzdw/dylt/hook/HookConfigReader.kt'
 
-# Retired settings that are deliberately not read on the hooked side. The bottom gradient
-# blur is off everywhere in the manager too, so a hard-coded false is consistent.
 # KEY_ENABLED is bundle-only: the provider and broadcast payloads carry it, and the
 # preference path derives it from the per-package `app_<package>` switch instead.
-$allowedUnread = @('KEY_BOTTOM_GRADIENT_BLUR_ENABLED', 'KEY_ENABLED')
+$allowedUnread = @('KEY_ENABLED')
 
 $contract = Get-Content -LiteralPath (Join-Path $configRoot 'ConfigContract.kt') -Raw -Encoding utf8
 $names = @{}

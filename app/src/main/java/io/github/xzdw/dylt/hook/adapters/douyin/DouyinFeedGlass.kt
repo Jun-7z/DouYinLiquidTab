@@ -212,7 +212,7 @@ internal object DouyinFeedGlass {
 
     private fun onInputPreDraw(view: View) {
         val config = latestConfig ?: return
-        if (!config.commentGlassEnabled || !config.commentInputGlass || !view.isShown || view.height <= 0) return
+        if (!config.commentGlassEnabled || !view.isShown || view.height <= 0) return
         // Comment cells reuse CommentBottomAreaLayout. Only the bar outside the list is the input dock.
         if (insideList(view)) return
         val root = latestRoot?.get()
@@ -398,9 +398,9 @@ internal object DouyinFeedGlass {
             clearedFor = sheet
             clearedForSize = sheetSize
         }
-        if (!config.commentInputGlass || field == null || pill == null) {
+        if (field == null || pill == null) {
             val held = inputRef?.get()
-            if (!config.commentInputGlass || held == null || !held.isAttachedToWindow || !held.isShown) {
+            if (held == null || !held.isAttachedToWindow || !held.isShown) {
                 releaseInput()
             }
         } else {
