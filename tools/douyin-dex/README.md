@@ -84,6 +84,7 @@ Checked packages:
 | 2026-10-17 update | | | `X.0GO1` | `LJJIJIIJIL` |
 | 41.0.0 | 410000 | 41000100 | `X.1OKa` | `LJJIJIIJIL` |
 | 41.1.0 official | 410101 | 41109900 | `X.1HiJ` | `LJJIJIIJI` |
+| 41.3.0 official | 410301 | 41309900 | `X.0umf` | `LJJIJIIJIL` |
 
 On 41.0 and 41.1, `LJJI` is `()V`. The hook only forces zero-argument boolean methods,
 so that void method is left alone. `X.0GO1` / `X.1KBI` / `X.0wMt` still exist on these

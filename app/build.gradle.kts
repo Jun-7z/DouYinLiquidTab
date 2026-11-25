@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.xzdw.dylt"
         minSdk = 35
         targetSdk = 37
-        versionCode = 36
-        versionName = "1.7.22"
+        versionCode = 37
+        versionName = "1.7.23"
 
         vectorDrawables.useSupportLibrary = true
     }

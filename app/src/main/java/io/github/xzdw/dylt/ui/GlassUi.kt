@@ -1130,19 +1130,20 @@ private fun GlassAboutHeader(palette: GlassPalette, versionName: String?) {
 }
 
 /**
- * Builds the hook was checked against: 40.6 through 41.1, including 41.0.x.
+ * Builds the hook was checked against: 40.6 through 41.3, including 41.0.x and the 41.3.0
+ * official package (versionCode 410301, update 41309900).
  *
- * `update_version_code` starts with major×10+minor (`410` is 41.0, `411` is 41.1).
- * 41.2 and newer stay "未适配" until that package is checked; the hooks themselves
+ * `update_version_code` starts with major×10+minor (`410` is 41.0, `413` is 41.3).
+ * 41.4 and newer stay "未适配" until that package is checked; the hooks themselves
  * still try the anchor scan and fall back to capture if the names moved again.
  */
 private fun douyinBuildAdapted(updateCode: String?, versionName: String?): Boolean {
     val head = updateCode?.filter { it.isDigit() }?.take(3)?.toIntOrNull()
-    if (head != null) return head in 406..411
+    if (head != null) return head in 406..413
     val version = versionName ?: return false
     val major = version.substringBefore('.').toIntOrNull() ?: return false
     val minor = version.substringAfter('.', "0").substringBefore('.').toIntOrNull() ?: return false
-    return (major == 40 && minor >= 6) || (major == 41 && minor <= 1)
+    return (major == 40 && minor >= 6) || (major == 41 && minor <= 3)
 }
 
 /**
@@ -1225,7 +1226,7 @@ private fun GlassVersionRow(
             // The build number when it can be read, otherwise the versionName, so the cell
             // never goes blank on an unfamiliar APK layout.
             value = douyinBuildCode ?: douyinVersion ?: "未安装",
-            subtitle = "适配版本：40.6–41.1",
+            subtitle = "适配版本：40.6–41.3",
             // The old value pill moved onto the status tag: the version itself is plain text,
             // and the green/orange rectangle now marks whether this build is adapted.
             titleBadgeText = when {
