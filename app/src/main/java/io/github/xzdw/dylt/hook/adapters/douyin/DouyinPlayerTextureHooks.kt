@@ -82,7 +82,7 @@ fun videoSize(texture: TextureView): Pair<Int, Int>? {
             // versionName. 41.0.0's factory is X.1OKa and 41.1.0's is X.1HiJ; both still
             // contain X.0GO1 / X.1KBI / X.0wMt as unrelated classes. Resolve from the
             // stable field anchors first, and only then fall back to the older names.
-            val resolved = runCatching { DouyinFeedOutputResolver.resolve(context.classLoader) }
+            val resolved = runCatching { DouyinFeedOutputResolver.resolve(context.classLoader, context.dataDir) }
                 .onFailure { Xposed.log("[OfflineGlass] feed factory scan failed: $it") }
                 .getOrNull()
             val factoryMethod = resolved?.factoryMethod ?: "LJIILIIL"

@@ -33,6 +33,7 @@ class LiquidTabModule : XposedModule() {
                 classLoader = param.classLoader,
                 packageName = param.packageName,
                 processName = processName,
+                dataDir = param.applicationInfo?.dataDir,
             ),
         )
     }

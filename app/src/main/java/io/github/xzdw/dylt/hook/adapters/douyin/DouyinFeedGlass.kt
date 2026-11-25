@@ -1327,11 +1327,19 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
             if (!bounds.isEmpty) canvas.drawRect(bounds, fill)
             return
         }
+        // True while the host is still moving on screen. Douyin keeps the comment sheet
+        // attached after the first open and slides it back in on the RenderNode, which
+        // never calls draw(): the scene stayed the one recorded at the start position
+        // (below the screen, empty), so a reopened sheet showed bare tint until the 700ms
+        // refresh. Chasing one frame at a time until the position settles fixes that and
+        // costs nothing once the sheet is still.
+        var chase = false
         runCatching {
             ensureEffect(width, height)
             val now = SystemClock.uptimeMillis()
             host.getLocationInWindow(hostAt)
             val moved = hostAt[0] != sceneX || hostAt[1] != sceneY
+            // A failed record leaves sceneX/Y behind; chasing it would never settle.
             val stale = !live && now - sceneAt >= DouyinFeedGlassRefresh
             // Live glass (the input capsule and its icon circles) re-records when the list
             // scrolls or the view moves. It does not schedule the next frame itself.
@@ -1345,6 +1353,7 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
                     sceneH = height
                     sceneX = hostAt[0]
                     sceneY = hostAt[1]
+                    chase = moved
                 }
             }
         }
@@ -1375,7 +1384,9 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
             }
         }
         canvas.restoreToCount(save)
-        if (!live && host.isShown && !refreshPosted) {
+        if (chase && host.isShown) {
+            host.postInvalidateOnAnimation()
+        } else if (!live && host.isShown && !refreshPosted) {
             refreshPosted = true
             host.postDelayed({
                 refreshPosted = false

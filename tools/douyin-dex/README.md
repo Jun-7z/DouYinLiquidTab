@@ -70,8 +70,10 @@ Add to the candidate list in DouyinPlayerTextureHooks.kt, newest first:
 
 The module no longer needs that name pasted into a table. `DouyinFeedOutputResolver`
 reads the installed APK at hook time, finds the class that declares the anchor fields,
-and takes its `(ViewGroup, boolean)` method that returns the class itself. The names
-printed here are only for checking a build by hand.
+and takes its `(ViewGroup, boolean)` method that returns the class itself. The answer is
+cached in Douyin's own `files/liquidtab_feed_output.cache`, keyed by each APK's path,
+size and mtime, so only the first cold start after a Douyin update pays for the scan.
+The names printed here are only for checking a build by hand.
 
 Checked packages:
 

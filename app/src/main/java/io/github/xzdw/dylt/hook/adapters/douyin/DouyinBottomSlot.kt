@@ -23,6 +23,7 @@ import java.util.Collections
 import java.util.WeakHashMap
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * The pill is always 首页 / 朋友 / 消息 / 我. 「显示加号」 shows or hides the original
@@ -30,14 +31,27 @@ import kotlin.math.max
  * today that circle is the music-disc proxy.
  *
  * The real MusicCoverView stays in the feed item. Reparenting it into the glass host
- * pulls it out of the recycled page that loads the cover. The feed pager keeps the
- * previous page's cover attached, so the proxy rebinds to whichever cover belongs
- * to the page currently on screen. While the right circle is the disc, the nearest
- * small ancestor in the narrow right-hand column stays VISIBLE and attached so the
- * cover drawable keeps loading, but that slot measures to height 0. A view wider
- * than about 40% of the screen or taller than about half of it is never collapsed
- * or moved. If the column then still leaves a hole, only the narrow buttons above
- * the disc shift down. The circle spins on its own.
+ * pulls it out of the recycled page that loads the cover, and a translation does not
+ * move it either: on 41.x the disc sits in a strip at the bottom of each page, the bar
+ * lies below the page's own bounds (the page clips it), the glass is painted over page
+ * content, and the page scrolls while the bar stays put.
+ *
+ * The proxy rebinds to whichever cover belongs to the page currently on screen and
+ * re-reads that cover every [ART_REFRESH_MS], so an image that finishes loading after
+ * the swipe still reaches the bar. When the page has no `MusicCoverView` at all (dyyds
+ * 隐藏转盘 removes it), the cover comes from the video's own data instead, see
+ * [DouyinMusicCover], and a tap opens the music page directly. A video without music
+ * shows the empty circle.
+ * Every attached page's disc is held transparent, not only the selected one, and
+ * Douyin's own views on the disc spot (the 听抖音 / 听合集 / 玩同款 badge, the second
+ * cover row) go to alpha 0 with it. Hiding is alpha only; visibility belongs to Douyin
+ * and to any module (dyyds) that hides the disc itself.
+ *
+ * Where the disc is in the narrow action column, the nearest small ancestor in that
+ * column stays attached so the cover drawable keeps loading, but that slot
+ * measures to height 0. A view wider than about 40% of the screen or taller than about
+ * half of it is never collapsed or moved. If the column then still leaves a hole, only
+ * the narrow buttons above the disc shift down. The circle spins on its own.
  */
 internal object DouyinBottomSlot {
     private const val LOOK_MS = 400L
@@ -50,6 +64,10 @@ internal object DouyinBottomSlot {
     private const val SYNC_DEG = 0.2f
     /** Same hold as the feed's static-video detector. Longer than one dropped frame. */
     private const val PAUSE_HOLD_MS = 250L
+    /** Re-read the bound cover this often; Fresco swaps the image inside one drawable. */
+    private const val ART_REFRESH_MS = 500L
+    /** Walks in a row that found no cover before the circle lets go of the last one. */
+    private const val MISS_LIMIT = 3
     /** Disc row we are willing to collapse. Larger than this is not the disc slot. */
     private const val SLOT_MAX_W = 0.35f
     private const val SLOT_MAX_H = 0.30f
@@ -71,8 +89,13 @@ internal object DouyinBottomSlot {
     private var discRef: WeakReference<View>? = null
     private var lookedAt = 0L
     private var badgeAt = 0L
+    /** What the bar draws. Replaced only by a render that differs, so it never blanks. */
     private var art: Bitmap? = null
+    /** Render target, swapped with [art] when the new picture differs. */
+    private var spare: Bitmap? = null
     private var artKey = 0
+    private var artPrint = 0L
+    private var artAt = 0L
     private var artTriedKey = 0
     private var artTriedAt = 0L
     private var loggedMode = ""
@@ -81,17 +104,32 @@ internal object DouyinBottomSlot {
     private var lastLiveRotation = Float.NaN
     private var spinView: View? = null
     private var watchPosted = false
-    private var hooksInstalled = false
+    private var collapseHooksInstalled = false
     private var videoStamp = Long.MIN_VALUE
     private var videoStampAt = 0L
     private var hostRef: WeakReference<View>? = null
     private val hiddenBadges = WeakHashMap<View, Int>()
     private val badgeLogged = HashSet<String>()
-    /** Discs we are keeping transparent. Identity lookup from the alpha hook. */
+    /** Discs we keep transparent. Their pre-draw listener puts alpha 0 back before each draw. */
     private val forced = Collections.synchronizedSet(
         Collections.newSetFromMap(WeakHashMap<View, Boolean>()),
     )
     private val held = ArrayList<HeldDisc>(4)
+    /**
+     * Douyin views drawn on the disc spot, held at alpha 0. The value is the alpha they
+     * had when muted, put back when the right circle goes away.
+     */
+    private val muted = WeakHashMap<View, Float>()
+    private val mutedLogged = HashSet<String>()
+    /** Every cover the last walk found, one per attached page. Reused between walks. */
+    private val pageDiscs = ArrayList<View>(4)
+    /** Consecutive walks that found no cover on the page on screen. */
+    private var misses = 0
+    /** Cover read from the video data while the page has no disc view. Never drawn into. */
+    private var dataArt: Bitmap? = null
+    private var dataKey: String? = null
+    private var dataAt = 0L
+    private var loggedData: Boolean? = null
 
     /**
      * Column slots currently forced to a 0 measured height. Replaced as a whole so the
@@ -151,7 +189,8 @@ internal object DouyinBottomSlot {
         }
     }
 
-    fun discArt(): Bitmap? = art?.takeIf { !it.isRecycled && it.width > 0 }
+    fun discArt(): Bitmap? =
+        (if (discRef != null) art else dataArt)?.takeIf { !it.isRecycled && it.width > 0 }
 
     /**
      * Angle of the bottom circle. Always the local animator while the video is
@@ -173,31 +212,20 @@ internal object DouyinBottomSlot {
         return if (value is Float) value else 0f
     }
 
-    /** Keep setAlpha(0) / INVISIBLE from sticking on the disc we are showing. */
-    fun installHooks() {
-        if (hooksInstalled) return
-        hooksInstalled = true
+    /**
+     * Collapse support for a disc that sits in the narrow action column. These are
+     * View-wide hooks, and every hooked method is deoptimized, so each `measure` and
+     * `setLayoutParams` call in the whole app would run interpreted plus a dispatch.
+     * Installed on the first real collapse only; a disc in the bottom strip (41.x)
+     * never installs them. Alpha needs no hook: the pre-draw listeners put alpha 0 back
+     * after Douyin's own fades and before the frame draws. Visibility is never touched:
+     * Douyin fades the disc in through INVISIBLE, and other modules (dyyds 隐藏转盘) hide it
+     * the same way.
+     */
+    private fun installCollapseHooks() {
+        if (collapseHooksInstalled) return
+        collapseHooksInstalled = true
         runCatching {
-            Xposed.hookAllMethods(View::class.java, "setAlpha", object : MethodHook() {
-                override fun beforeHookedMethod(param: MethodHook.MethodHookParam) {
-                    val view = param.thisObject as? View ?: return
-                    if (!forced.contains(view)) return
-                    if (exceedsTouchLimit(view)) return
-                    val alpha = param.args.getOrNull(0) as? Float ?: return
-                    if (alpha != 0f) param.args[0] = 0f
-                }
-            })
-            Xposed.hookAllMethods(View::class.java, "setVisibility", object : MethodHook() {
-                override fun beforeHookedMethod(param: MethodHook.MethodHookParam) {
-                    val view = param.thisObject as? View ?: return
-                    if (!forced.contains(view)) return
-                    if (exceedsTouchLimit(view)) return
-                    val visibility = param.args.getOrNull(0) as? Int ?: return
-                    // INVISIBLE makes isShown() false and Douyin pauses cover loading.
-                    // GONE is Douyin collapsing the slot itself; leave that alone.
-                    if (visibility == View.INVISIBLE) param.args[0] = View.VISIBLE
-                }
-            })
             // After the slot measures its cover at the real size, report height 0
             // so the action column closes the gap. Children keep the size they just
             // measured, which is what the cover loader and view.draw() use.
@@ -263,6 +291,8 @@ internal object DouyinBottomSlot {
         if (showRight) ensureWatch() else {
             stopSpin()
             releaseHeld()
+            dataKey = null
+            dataArt = null
         }
         val label = "$plus:$right:$hideBadge"
         if (loggedMode != label) {
@@ -292,13 +322,26 @@ internal object DouyinBottomSlot {
         // so "still attached" is not "still the selected video". Re-resolve when
         // that page no longer owns the screen, and on a short timer otherwise.
         val pageChanged = cached == null || !cached.isAttachedToWindow || !ownsScreenCenter(cached)
-        val due = if (pageChanged) now - lookedAt >= RESCAN_MS else now - lookedAt >= LOOK_MS
+        // A page with no cover (图文, live, ads) must not keep the 50 ms walk running.
+        val fast = pageChanged && misses < MISS_LIMIT
+        val due = now - lookedAt >= if (fast) RESCAN_MS else LOOK_MS
         if (due) {
             lookedAt = now
             val found = findDisc(root)?.takeIf { coverBoundsOk(it) }
-            if (found != null && found !== cached) rebindDisc(host, cached, found)
+            misses = if (found == null) (misses + 1).coerceAtMost(MISS_LIMIT) else 0
+            if (found != null && found !== cached) {
+                rebindDisc(host, cached, found)
+            } else if (found == null && pageChanged && misses >= MISS_LIMIT) {
+                unbindDisc(host)
+            }
+            if (showRight) holdPages()
+            pageDiscs.clear()
         }
-        val view = discRef?.get() ?: return
+        val view = discRef?.get()
+        if (view == null) {
+            if (showRight) ensureDataArt(host, now)
+            return
+        }
         val signature = "${view.javaClass.simpleName}:${view.visibility}:${view.alpha}"
         if (loggedDisc != signature) {
             loggedDisc = signature
@@ -329,6 +372,7 @@ internal object DouyinBottomSlot {
             val retrySlot = slot == null && held.none { it.collapse } && now - collapseSeekAt >= LOOK_MS
             if (retrySlot) collapseSeekAt = now
             if (!heldView || !heldParent || (slot != null && !heldSlot) || retrySlot) holdCurrent(view)
+            muteOverlays(anchorOf(view))
             ensureArt(view, now)
         } else {
             releaseHeld()
@@ -342,6 +386,11 @@ internal object DouyinBottomSlot {
     fun clickDisc(): Boolean {
         val view = discRef?.get()
         if (view == null) {
+            val context = hostRef?.get()?.context
+            if (context != null && DouyinMusicCover.openMusic(context)) {
+                Xposed.log("[OfflineGlass][BottomSlot] disc click=music page")
+                return true
+            }
             Xposed.log("[OfflineGlass][BottomSlot] disc click=miss")
             return false
         }
@@ -363,22 +412,83 @@ internal object DouyinBottomSlot {
         return false
     }
 
+    /**
+     * No disc view on the page: take the cover from the video data. Resolved every
+     * [LOOK_MS]; a new video clears the circle until its own cover arrives, so the bar
+     * never shows the previous video's art.
+     */
+    private fun ensureDataArt(host: View, now: Long) {
+        if (now - dataAt < LOOK_MS) return
+        dataAt = now
+        val aweme = DouyinMusicCover.currentAweme()
+        val urls = aweme?.let { runCatching { DouyinMusicCover.coverUrls(it) }.getOrNull() }.orEmpty()
+        val key = urls.firstOrNull()
+        val found = aweme != null
+        if (loggedData != found) {
+            loggedData = found
+            Xposed.log("[OfflineGlass][BottomSlot] disc source=data video=$found cover=${key != null}")
+        }
+        if (key == dataKey) return
+        dataKey = key
+        dataArt = key?.let(DouyinMusicCover::cached)
+        host.invalidate()
+        if (key == null || dataArt != null) return
+        DouyinMusicCover.load(urls, ART_PX) { loaded, bitmap ->
+            if (loaded == dataKey && discRef == null) {
+                dataArt = bitmap
+                hostRef?.get()?.invalidate()
+            }
+        }
+    }
+
+    /**
+     * Re-read the cover every [ART_REFRESH_MS]. Fresco keeps one root drawable per view and
+     * swaps the image inside it, so a recycled page, or a cover that finishes loading after
+     * the swipe, does not change the identity key. A render equal to what the bar shows is
+     * dropped without an invalidate, and a blank one never replaces it.
+     */
     private fun ensureArt(view: View, now: Long) {
         val drawable = coverDrawable(view)
         val key = System.identityHashCode(view) * 31 + System.identityHashCode(drawable)
-        if (key == artKey && art != null) return
-        if (key == artTriedKey && now - artTriedAt < LOOK_MS) return
-        artTriedKey = key
-        artTriedAt = now
+        val same = key == artKey && art != null
+        if (same) {
+            if (now - artAt < ART_REFRESH_MS) return
+            artAt = now
+        } else {
+            if (key == artTriedKey && now - artTriedAt < LOOK_MS) return
+            artTriedKey = key
+            artTriedAt = now
+        }
         val drawn = if (canDraw(view)) renderView(view) else null
         val bitmap = drawn ?: drawable?.let(::renderDrawable) ?: return
-        art = bitmap
         artKey = key
+        artAt = now
+        val print = fingerprint(bitmap)
+        if (art != null && print == artPrint) return
+        spare = art
+        art = bitmap
+        artPrint = print
         hostRef?.get()?.invalidate()
         val source = if (drawn != null) "draw" else "drawable"
         Xposed.log(
-            "[OfflineGlass][BottomSlot] disc art=$source vis=${view.visibility} alpha=${view.alpha}",
+            "[OfflineGlass][BottomSlot] disc art=$source${if (same) " refresh" else ""} " +
+                "vis=${view.visibility} alpha=${view.alpha}",
         )
+    }
+
+    /** 64 sampled pixels: enough to tell two covers, or a placeholder and its image, apart. */
+    private fun fingerprint(bitmap: Bitmap): Long {
+        var hash = 17L
+        var y = 10
+        while (y < bitmap.height) {
+            var x = 10
+            while (x < bitmap.width) {
+                hash = hash * 31 + bitmap.getPixel(x, y)
+                x += 20
+            }
+            y += 20
+        }
+        return hash
     }
 
     /**
@@ -389,7 +499,7 @@ internal object DouyinBottomSlot {
         view.visibility != View.GONE && view.width > 0 && view.height > 0
 
     private fun renderView(view: View): Bitmap? {
-        val bitmap = obtainArt()
+        val bitmap = obtainSpare()
         bitmap.eraseColor(Color.TRANSPARENT)
         val canvas = Canvas(bitmap)
         val scale = ART_PX.toFloat() / max(view.width, view.height).toFloat()
@@ -403,7 +513,7 @@ internal object DouyinBottomSlot {
 
     /** The cover bitmap, ignoring the view's own alpha and visibility. */
     private fun renderDrawable(drawable: Drawable): Bitmap? {
-        val bitmap = obtainArt()
+        val bitmap = obtainSpare()
         bitmap.eraseColor(Color.TRANSPARENT)
         val canvas = Canvas(bitmap)
         val bounds = drawable.bounds
@@ -428,12 +538,12 @@ internal object DouyinBottomSlot {
         return bitmap
     }
 
-    private fun obtainArt(): Bitmap {
-        val current = art
+    private fun obtainSpare(): Bitmap {
+        val current = spare
         if (current != null && !current.isRecycled && current.width == ART_PX && current.height == ART_PX) {
             return current
         }
-        return Bitmap.createBitmap(ART_PX, ART_PX, Bitmap.Config.ARGB_8888).also { art = it }
+        return Bitmap.createBitmap(ART_PX, ART_PX, Bitmap.Config.ARGB_8888).also { spare = it }
     }
 
     private fun mostlyBlank(bitmap: Bitmap): Boolean {
@@ -652,9 +762,10 @@ internal object DouyinBottomSlot {
     }
 
     /**
-     * Transparent, still VISIBLE, still attached. The column slot measures to
-     * height 0 so the buttons above it move down. GONE is not used: that makes
-     * isShown() false and the cover loader stops.
+     * Transparent and still attached. Visibility stays with Douyin and with any module
+     * that hides the disc itself. The column slot measures to height 0 so the buttons
+     * above it move down. GONE is not used: that makes isShown() false and the cover
+     * loader stops.
      */
     private fun holdCurrent(view: View) {
         val slot = columnSlot(view)
@@ -705,8 +816,8 @@ internal object DouyinBottomSlot {
             if (collapse) rememberFreed(target, target.height)
             target.addOnAttachStateChangeListener(attach)
             if (target.isAttachedToWindow) watchDraw(target, listener, add = true)
-            if (target.visibility == View.INVISIBLE) target.visibility = View.VISIBLE
             if (target.alpha != 0f) target.alpha = 0f
+            if (collapse) installCollapseHooks()
             if (collapse) squashSlot(item, rememberIncoming = false)
             Xposed.log(
                 "[OfflineGlass][BottomSlot] disc hide=alpha0 ${target.javaClass.simpleName} " +
@@ -800,7 +911,6 @@ internal object DouyinBottomSlot {
             releaseOne(view)
             return@OnPreDrawListener true
         }
-        if (view.visibility == View.INVISIBLE) view.visibility = View.VISIBLE
         if (view.alpha != 0f) view.alpha = 0f
         val item = held.firstOrNull { it.collapse && it.view === view }
         if (item != null) {
@@ -822,6 +932,7 @@ internal object DouyinBottomSlot {
     }
 
     private fun releaseHeld() {
+        restoreMuted()
         if (held.isEmpty() && collapsedSlots.isEmpty() && shiftApplied.isEmpty()) return
         val copy = ArrayList(held)
         held.clear()
@@ -858,9 +969,6 @@ internal object DouyinBottomSlot {
         view.removeOnAttachStateChangeListener(item.attach)
         watchDraw(view, item.listener, add = false)
         if (view.alpha == 0f) view.alpha = item.alpha
-        if (view.visibility == View.VISIBLE && item.visibility == View.INVISIBLE) {
-            view.visibility = item.visibility
-        }
         if (!item.collapse) return
         clearShift(view.parent, all = false)
         if (view.paddingTop != item.paddingTop || view.paddingBottom != item.paddingBottom) {
@@ -924,6 +1032,109 @@ internal object DouyinBottomSlot {
                 "#${System.identityHashCode(to).toString(16)} ${to.width}x${to.height} " +
                 "parent=${to.parent?.javaClass?.simpleName} from=$fromName",
         )
+    }
+
+    /** The page on screen has no cover (图文, live, ads): show the empty circle, not the last one. */
+    private fun unbindDisc(host: View) {
+        if (discRef == null && art == null) return
+        discRef = null
+        spinView = null
+        lastLiveRotation = Float.NaN
+        if (art != null) spare = art
+        art = null
+        artKey = 0
+        artPrint = 0L
+        host.invalidate()
+        Xposed.log("[OfflineGlass][BottomSlot] disc unbind: no cover on the page on screen")
+    }
+
+    /** Hold every attached page's cover, so the next one never shows during a swipe. */
+    private fun holdPages() {
+        for (index in pageDiscs.indices) {
+            val disc = pageDiscs[index]
+            if (held.none { it.view === disc }) holdCurrent(disc)
+            muteOverlays(anchorOf(disc))
+        }
+    }
+
+    /** The view on the disc spot: the cover's container when it has one. */
+    private fun anchorOf(disc: View): View {
+        val parent = disc.parent as? View ?: return disc
+        return if (parent.javaClass.simpleName == "MusicCoverContainerLayout") parent else disc
+    }
+
+    /**
+     * Douyin also draws on the disc spot: the 听抖音 / 听合集 / 玩同款 badge is a
+     * `ConstraintLayout` beside `MusicCoverContainerLayout`, and a second row in the same
+     * bottom strip holds another cover circle. A view at most 2.5× the disc wide and 2×
+     * tall that covers at least 40% of it goes to alpha 0 while the disc lives in the bar.
+     * Visibility stays Douyin's. This runs on every pre-draw for the page on screen, so a
+     * badge Douyin shows or fades in later is caught before it draws. Layout coordinates
+     * only; nothing is allocated.
+     */
+    private fun muteOverlays(anchor: View) {
+        val row = anchor.parent as? ViewGroup ?: return
+        val w = anchor.width
+        val h = anchor.height
+        if (w <= 0 || h <= 0) return
+        val left = anchor.left
+        val top = anchor.top
+        muteChildren(row, anchor, left, top, w, h)
+        // The bottom strip is only as tall as its rows. A taller parent is the action
+        // column or the page, and its other children are not on the disc.
+        val strip = row.parent as? ViewGroup ?: return
+        if (strip is GlassHostLayout || strip.height <= 0 || strip.height > h * 2) return
+        val stripLeft = left + row.left
+        val stripTop = top + row.top
+        for (index in 0 until strip.childCount) {
+            val sibling = strip.getChildAt(index) ?: continue
+            if (sibling === row || sibling.visibility == View.GONE) continue
+            if (sibling is ViewGroup && sibling.width > w * 5 / 2) {
+                muteChildren(sibling, null, stripLeft - sibling.left, stripTop - sibling.top, w, h)
+            } else {
+                muteIfOver(sibling, stripLeft, stripTop, w, h)
+            }
+        }
+    }
+
+    private fun muteChildren(group: ViewGroup, skip: View?, left: Int, top: Int, w: Int, h: Int) {
+        for (index in 0 until group.childCount) {
+            val child = group.getChildAt(index) ?: continue
+            if (child !== skip) muteIfOver(child, left, top, w, h)
+        }
+    }
+
+    private fun muteIfOver(view: View, left: Int, top: Int, w: Int, h: Int) {
+        if (view.visibility == View.GONE) return
+        if (muted.containsKey(view)) {
+            // Douyin fades these in; alpha 0 goes back before this frame draws.
+            if (view.alpha != 0f) view.alpha = 0f
+            return
+        }
+        val vw = view.width
+        val vh = view.height
+        if (vw <= 0 || vh <= 0 || vw > w * 5 / 2 || vh > h * 2) return
+        val ix = min(left + w, view.right) - max(left, view.left)
+        val iy = min(top + h, view.bottom) - max(top, view.top)
+        if (ix <= 0 || iy <= 0 || ix.toLong() * iy * 5 < w.toLong() * h * 2) return
+        if (forced.contains(view) || exceedsTouchLimit(view)) return
+        muted[view] = view.alpha
+        view.alpha = 0f
+        val name = view.javaClass.simpleName
+        if (mutedLogged.add(name)) {
+            Xposed.log("[OfflineGlass][BottomSlot] disc overlay=alpha0 $name ${vw}x$vh")
+        }
+    }
+
+    private fun restoreMuted() {
+        if (muted.isEmpty()) return
+        val copy = HashMap(muted)
+        muted.clear()
+        mutedLogged.clear()
+        for ((view, alpha) in copy) {
+            if (view.alpha == 0f) view.alpha = alpha
+        }
+        Xposed.log("[OfflineGlass][BottomSlot] disc overlay=restore ${copy.size}")
     }
 
     /** Remember a disc-row height. A column-sized measure is not the hole we close. */
@@ -1022,9 +1233,11 @@ internal object DouyinBottomSlot {
     /**
      * Cover on the selected feed page. A collapsed disc has no height, so the
      * score uses the page's visible area and then how close the cover sits to
-     * the middle of the screen. Adjacent pager pages lose.
+     * the middle of the screen. Adjacent pager pages lose. Every cover the walk
+     * meets is also kept in [pageDiscs], so the caller can hold each page's disc.
      */
     private fun findDisc(root: View): View? {
+        pageDiscs.clear()
         val stack = ArrayDeque<View>()
         stack.addLast(root)
         var visited = 0
@@ -1034,6 +1247,7 @@ internal object DouyinBottomSlot {
             val view = stack.removeLast()
             if (view is GlassHostLayout) continue
             if (view.javaClass.simpleName == "MusicCoverView" && coverBoundsOk(view)) {
+                pageDiscs.add(view)
                 val score = pageScore(view)
                 if (score > bestScore) {
                     best = view

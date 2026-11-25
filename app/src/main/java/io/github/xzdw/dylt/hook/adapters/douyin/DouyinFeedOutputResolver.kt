@@ -29,11 +29,62 @@ internal object DouyinFeedOutputResolver {
     private const val VIEW_GROUP = "Landroid/view/ViewGroup;"
     private val historicalSwitches = setOf("LJIJJ", "LJJI", "LJJIIJZLJL")
 
-    fun resolve(classLoader: ClassLoader): Target? {
-        for (path in apkPaths(classLoader)) {
-            resolveApk(File(path))?.let { return it }
+    private const val CACHE_FILE = "liquidtab_feed_output.cache"
+    private const val CACHE_VERSION = "1"
+
+    /**
+     * The scan reads whole `classes*.dex` entries (tens of MB) and runs inside
+     * `Application.attach`, so it used to cost every cold start about a second plus that
+     * much garbage. The result only changes with the APK, so it is kept in the target's
+     * own data directory, keyed by each APK's path, size and mtime.
+     */
+    fun resolve(classLoader: ClassLoader, dataDir: String?): Target? {
+        val paths = apkPaths(classLoader)
+        val key = paths.joinToString("|") { path ->
+            val file = File(path)
+            "${file.path}:${file.length()}:${file.lastModified()}"
+        }
+        val cache = if (dataDir != null && paths.isNotEmpty()) File(File(dataDir, "files"), CACHE_FILE) else null
+        cache?.let { readCache(it, key) }?.let { return it }
+        for (path in paths) {
+            val found = resolveApk(File(path)) ?: continue
+            cache?.let { writeCache(it, key, found) }
+            return found
         }
         return null
+    }
+
+    private fun readCache(file: File, key: String): Target? = runCatching {
+        if (!file.isFile) return@runCatching null
+        val lines = file.readLines()
+        if (lines.size < 6 || lines[0] != CACHE_VERSION || lines[1] != key) return@runCatching null
+        Target(
+            factoryClass = lines[2],
+            factoryMethod = lines[3],
+            feedScopeMethod = lines[4].ifEmpty { null },
+            booleanSwitches = if (lines[5].isEmpty()) emptyList() else lines[5].split(','),
+        )
+    }.getOrNull()
+
+    private fun writeCache(file: File, key: String, target: Target) {
+        runCatching {
+            val dir = file.parentFile ?: return
+            dir.mkdirs()
+            val text = listOf(
+                CACHE_VERSION,
+                key,
+                target.factoryClass,
+                target.factoryMethod,
+                target.feedScopeMethod.orEmpty(),
+                target.booleanSwitches.joinToString(","),
+            ).joinToString("\n")
+            val temporary = File(dir, "$CACHE_FILE.tmp")
+            temporary.writeText(text)
+            if (!temporary.renameTo(file)) {
+                file.writeText(text)
+                temporary.delete()
+            }
+        }
     }
 
     /** Visible to the offline check; the hook calls [resolve]. */

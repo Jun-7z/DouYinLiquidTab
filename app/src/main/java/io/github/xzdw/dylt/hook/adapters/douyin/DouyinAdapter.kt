@@ -16,7 +16,7 @@ import io.github.xzdw.dylt.targets.TargetSpec
 internal object DouyinAdapter : TargetAdapter {
     override fun installHooks(context: HookLoadContext, spec: TargetSpec) {
         DouyinPlayerTextureHooks.install(context)
-        DouyinBottomSlot.installHooks()
+        DouyinMusicCover.install(context.classLoader)
     }
     override val key = "douyin"
     override val allowRenderNodeRefresh = true

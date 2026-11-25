@@ -11,4 +11,6 @@ class HookLoadContext(
     val classLoader: ClassLoader,
     val packageName: String,
     val processName: String,
+    /** The target's own private data directory, for caches that must outlive the process. */
+    val dataDir: String?,
 )
