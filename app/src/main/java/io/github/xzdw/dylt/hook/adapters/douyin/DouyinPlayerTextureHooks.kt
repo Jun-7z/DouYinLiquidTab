@@ -20,6 +20,9 @@ internal object DouyinPlayerTextureHooks {
     private val feedScope = ThreadLocal.withInitial { 0 }
     private val textures = WeakHashMap<TextureView, Boolean>()
     private var lastActiveTexture = java.lang.ref.WeakReference<TextureView>(null)
+    /** The texture [currentFrameStamp] reads: the one showing the most of itself on screen. */
+    private var stampTexture = java.lang.ref.WeakReference<TextureView>(null)
+    private var stampPickedAt = 0L
 
 /**
  * Dimensions the player last handed to [android.graphics.SurfaceTexture.setDefaultBufferSize],
@@ -427,26 +430,51 @@ fun videoSize(texture: TextureView): Pair<Int, Int>? {
         synchronized(textures) { textures.containsKey(view) }
 
     /**
-     * Presentation timestamp of the newest frame handed to the registered video texture,
-     * or null when no texture is known.
-     *
-     * Deliberately cheaper than [activeTexture]: it reuses the last known texture without
-     * re-validating its geometry against the host. Callers use this only to ask "is the
-     * producer still handing over frames?" — whether the texture is *sampleable* is still
-     * decided by [activeTexture] on the paths that actually draw.
+     * Presentation timestamp of the newest frame of the video on screen, or null when no
+     * registered video texture is visible (photo post, live, a page without a player).
      *
      * `SurfaceTexture.getTimestamp()` advances only when the producer calls
-     * `updateTexImage()`, so comparing it across frames answers that question with no
-     * pixel readback at all.
+     * `updateTexImage()`, so comparing it across frames answers "is the video still
+     * playing?" with no pixel readback at all.
+     *
+     * The feed keeps the previous and the next video's textures attached. Reading
+     * [lastActiveTexture] here, which only the glass draw paths refresh, often meant the
+     * previous video's stopped texture after a swipe: the disc then paused on a playing
+     * video and turned on another. The texture with the largest visible area wins instead,
+     * re-picked at most every [STAMP_PICK_MS] so the per-frame callers stay cheap. Largest
+     * area rather than "covers the centre" keeps the shrunken video above an open comment
+     * sheet.
      */
     fun currentFrameStamp(): Long? {
-        val texture = synchronized(textures) {
-            lastActiveTexture.get()?.takeIf { textures.containsKey(it) }
-                ?: textures.keys.firstOrNull()
-        } ?: return null
+        val now = android.os.SystemClock.uptimeMillis()
+        var texture = stampTexture.get()
+        // No texture on screen (a photo post) is a valid answer too; it waits for the timer.
+        if (now - stampPickedAt >= STAMP_PICK_MS || (texture != null && !texture.isAttachedToWindow)) {
+            stampPickedAt = now
+            texture = pickVisibleTexture()
+            stampTexture = java.lang.ref.WeakReference(texture)
+        }
         // TextureView.surfaceTexture is a plain nullable getter; no runCatching here because
         // this runs once per frame and the closure would be an allocation in the hot path.
-        return texture.surfaceTexture?.timestamp
+        return texture?.surfaceTexture?.timestamp
+    }
+
+    private fun pickVisibleTexture(): TextureView? {
+        val visible = geometryScratch.get().visible
+        var best: TextureView? = null
+        var bestArea = 0L
+        synchronized(textures) {
+            for (texture in textures.keys) {
+                if (!texture.isAttachedToWindow || !texture.isShown || !texture.isAvailable) continue
+                if (!texture.getGlobalVisibleRect(visible)) continue
+                val area = visible.width().toLong() * visible.height()
+                if (area > bestArea) {
+                    best = texture
+                    bestArea = area
+                }
+            }
+        }
+        return best
     }
 
     /** Small registered-player set, avoiding per-frame traversal of the app tree. */
@@ -478,4 +506,7 @@ fun videoSize(texture: TextureView): Pair<Int, Int>? {
      * cannot make the scan unbounded.
      */
     private const val STACK_SCAN_DEPTH = 48
+
+    /** How often [currentFrameStamp] re-picks the texture on screen. A swipe settles in less. */
+    private const val STAMP_PICK_MS = 100L
 }

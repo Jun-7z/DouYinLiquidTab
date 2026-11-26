@@ -62,12 +62,20 @@ internal object DouyinBottomSlot {
     private const val SPIN_MS = 8_000L
     /** A live disc moves about this far between frames. Smaller changes are noise. */
     private const val SYNC_DEG = 0.2f
-    /** Same hold as the feed's static-video detector. Longer than one dropped frame. */
-    private const val PAUSE_HOLD_MS = 250L
+    /**
+     * No new video frame for this long means paused. A swipe leaves a gap of up to about
+     * half a second between the old video's last frame and the new one's first; 250 ms
+     * stopped the disc for a moment on every swipe. A real pause still stops it in 0.6 s.
+     */
+    private const val PAUSE_HOLD_MS = 600L
     /** Re-read the bound cover this often; Fresco swaps the image inside one drawable. */
     private const val ART_REFRESH_MS = 500L
     /** Walks in a row that found no cover before the circle lets go of the last one. */
     private const val MISS_LIMIT = 3
+    /** How often the data cover re-resolves the video on screen. Cheap: a few field reads. */
+    private const val DATA_LOOK_MS = 100L
+    /** Cross-fade between two covers (or a cover and the empty ring), in ms. */
+    private const val FADE_MS = 280L
     /** Disc row we are willing to collapse. Larger than this is not the disc slot. */
     private const val SLOT_MAX_W = 0.35f
     private const val SLOT_MAX_H = 0.30f
@@ -128,8 +136,10 @@ internal object DouyinBottomSlot {
     /** Cover read from the video data while the page has no disc view. Never drawn into. */
     private var dataArt: Bitmap? = null
     private var dataKey: String? = null
+    /** [dataArt] already shows [dataKey]'s cover, or that video has none. */
+    private var dataReady = true
     private var dataAt = 0L
-    private var loggedData: Boolean? = null
+    private var loggedData = false
 
     /**
      * Column slots currently forced to a 0 measured height. Replaced as a whole so the
@@ -189,8 +199,41 @@ internal object DouyinBottomSlot {
         }
     }
 
-    fun discArt(): Bitmap? =
-        (if (discRef != null) art else dataArt)?.takeIf { !it.isRecycled && it.width > 0 }
+    /** What the circle is fading towards: the art [discArt] last returned. */
+    private var shownArt: Bitmap? = null
+    /** What it is fading from, kept intact until the fade ends. */
+    private var fadeFrom: Bitmap? = null
+    private var fadeAt = 0L
+    private var fadeLevel = 1f
+
+    /**
+     * The cover the circle shows. A change, a new video's cover or the empty ring, starts a
+     * [FADE_MS] cross-fade from the previous one instead of a hard cut; [discFadeFrom] and
+     * [discFade] describe it for the renderer, and the host redraws each frame until it ends.
+     */
+    fun discArt(): Bitmap? {
+        val target = (if (discRef != null) art else dataArt)?.takeIf { !it.isRecycled && it.width > 0 }
+        val now = SystemClock.uptimeMillis()
+        if (target !== shownArt) {
+            fadeFrom = shownArt
+            fadeAt = now
+            shownArt = target
+        }
+        val t = ((now - fadeAt).toFloat() / FADE_MS).coerceIn(0f, 1f)
+        fadeLevel = t * t * (3f - 2f * t)
+        if (t >= 1f) {
+            fadeFrom = null
+        } else {
+            hostRef?.get()?.postInvalidateOnAnimation()
+        }
+        return target
+    }
+
+    /** The previous cover while a cross-fade runs; null means the empty ring. */
+    fun discFadeFrom(): Bitmap? = fadeFrom?.takeIf { !it.isRecycled }
+
+    /** Cross-fade progress, eased: 0 shows [discFadeFrom], 1 shows [discArt] alone. */
+    fun discFade(): Float = fadeLevel
 
     /**
      * Angle of the bottom circle. Always the local animator while the video is
@@ -293,6 +336,7 @@ internal object DouyinBottomSlot {
             releaseHeld()
             dataKey = null
             dataArt = null
+            dataReady = true
         }
         val label = "$plus:$right:$hideBadge"
         if (loggedMode != label) {
@@ -413,31 +457,38 @@ internal object DouyinBottomSlot {
     }
 
     /**
-     * No disc view on the page: take the cover from the video data. Resolved every
-     * [LOOK_MS]; a new video clears the circle until its own cover arrives, so the bar
-     * never shows the previous video's art.
+     * No disc view on the page: take the cover from the video data, every [DATA_LOOK_MS].
+     * Covers of the neighbouring videos are prefetched, so a swipe usually lands on a
+     * cached one. When it does not, the previous cover stays until the new one arrives:
+     * clearing it first showed the bare white ring for the length of the fetch. Only a
+     * video without music, or a cover that failed to load, shows the empty ring.
      */
     private fun ensureDataArt(host: View, now: Long) {
-        if (now - dataAt < LOOK_MS) return
+        if (now - dataAt < DATA_LOOK_MS) return
         dataAt = now
-        val aweme = DouyinMusicCover.currentAweme()
-        val urls = aweme?.let { runCatching { DouyinMusicCover.coverUrls(it) }.getOrNull() }.orEmpty()
+        DouyinMusicCover.prefetch(ART_PX)
+        // Mid-swipe the page on screen can be briefly unresolved; that is not "no music".
+        val aweme = DouyinMusicCover.currentAweme() ?: return
+        val urls = runCatching { DouyinMusicCover.coverUrls(aweme) }.getOrNull().orEmpty()
         val key = urls.firstOrNull()
-        val found = aweme != null
-        if (loggedData != found) {
-            loggedData = found
-            Xposed.log("[OfflineGlass][BottomSlot] disc source=data video=$found cover=${key != null}")
+        if (!loggedData) {
+            loggedData = true
+            Xposed.log("[OfflineGlass][BottomSlot] disc source=data cover=${key != null}")
         }
-        if (key == dataKey) return
-        dataKey = key
-        dataArt = key?.let(DouyinMusicCover::cached)
-        host.invalidate()
-        if (key == null || dataArt != null) return
-        DouyinMusicCover.load(urls, ART_PX) { loaded, bitmap ->
-            if (loaded == dataKey && discRef == null) {
-                dataArt = bitmap
-                hostRef?.get()?.invalidate()
-            }
+        if (key != dataKey) {
+            dataKey = key
+            dataReady = false
+            if (key != null) DouyinMusicCover.load(urls, ART_PX)
+        }
+        if (dataReady) return
+        val next = when {
+            key == null -> null
+            else -> DouyinMusicCover.cached(key) ?: if (DouyinMusicCover.hasFailed(key)) null else return
+        }
+        dataReady = true
+        if (next !== dataArt) {
+            dataArt = next
+            host.invalidate()
         }
     }
 
@@ -540,7 +591,10 @@ internal object DouyinBottomSlot {
 
     private fun obtainSpare(): Bitmap {
         val current = spare
-        if (current != null && !current.isRecycled && current.width == ART_PX && current.height == ART_PX) {
+        // The spare is usually the previous cover, which a running cross-fade still draws.
+        if (current != null && current !== fadeFrom && !current.isRecycled &&
+            current.width == ART_PX && current.height == ART_PX
+        ) {
             return current
         }
         return Bitmap.createBitmap(ART_PX, ART_PX, Bitmap.Config.ARGB_8888).also { spare = it }

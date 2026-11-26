@@ -374,25 +374,57 @@ internal class DouyinNavigationRenderer(@Suppress("UNUSED_PARAMETER") context: C
         }
     }
 
-    /** A copy of the feed disc. The real view stays put; this circle spins on its own. */
+    /**
+     * A copy of the feed disc. The real view stays put; this circle spins on its own.
+     * A new cover cross-fades in: between two covers the old one stays opaque underneath
+     * while the new one fades in on top, so the circle never turns see-through mid-way;
+     * to or from the empty ring both layers fade.
+     */
     private fun drawDiscButton(canvas: Canvas, centreX: Float, centreY: Float, size: Float, color: Int) {
         val bitmap = DouyinBottomSlot.discArt()
+        val level = DouyinBottomSlot.discFade()
         val radius = size / 2f * (1f - PUBLISH_ICON_INSET_RATIO)
+        if (level < 1f) {
+            val from = DouyinBottomSlot.discFadeFrom()
+            val under = if (from != null && bitmap != null) 1f else 1f - level
+            drawDiscLayer(canvas, from, centreX, centreY, size, radius, color, under)
+            drawDiscLayer(canvas, bitmap, centreX, centreY, size, radius, color, level)
+        } else {
+            drawDiscLayer(canvas, bitmap, centreX, centreY, size, radius, color, 1f)
+        }
+    }
+
+    /** One layer of the disc circle: the cover, or the empty ring when [bitmap] is null. */
+    private fun drawDiscLayer(
+        canvas: Canvas,
+        bitmap: Bitmap?,
+        centreX: Float,
+        centreY: Float,
+        size: Float,
+        radius: Float,
+        color: Int,
+        alpha: Float,
+    ) {
+        if (alpha <= 0f) return
         if (bitmap == null) {
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = size * 0.06f
             paint.color = color
+            paint.alpha = (Color.alpha(color) * alpha).roundToInt()
             canvas.drawCircle(centreX, centreY, radius, paint)
             return
         }
         publishClipPath.reset()
         publishClipPath.addCircle(centreX, centreY, radius, Path.Direction.CW)
         publishIconDest.set(centreX - radius, centreY - radius, centreX + radius, centreY + radius)
+        val base = publishIconPaint.alpha
+        publishIconPaint.alpha = (base * alpha).roundToInt()
         val saved = canvas.save()
         canvas.clipPath(publishClipPath)
         canvas.rotate(DouyinBottomSlot.discRotation(), centreX, centreY)
         canvas.drawBitmap(bitmap, null, publishIconDest, publishIconPaint)
         canvas.restoreToCount(saved)
+        publishIconPaint.alpha = base
     }
 
     /**

@@ -81,7 +81,12 @@ internal object DouyinIconGlass {
         columnRef = WeakReference(column)
         val glyphs = collect(column)
         val keep = glyphs.toSet()
-        val stale = bound.keys.filter { it !in keep || !it.isAttachedToWindow }
+        // collect() skips hidden or faded-out icons. Those keep their glass: releasing them
+        // showed the original icon during Douyin's fade-in and rebuilt the glyph after it.
+        // Only a detached icon, or one that is visible yet no longer a glyph, is released.
+        val stale = bound.keys.filter {
+            !it.isAttachedToWindow || (it !in keep && it.isShown && it.alpha > 0.05f)
+        }
         for (view in stale) releaseOne(view)
         for (view in glyphs) {
             val overlay = bound[view]

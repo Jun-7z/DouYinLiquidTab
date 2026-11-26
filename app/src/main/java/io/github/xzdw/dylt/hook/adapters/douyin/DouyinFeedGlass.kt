@@ -137,8 +137,16 @@ internal object DouyinFeedGlass {
         }
         val dark = isDark(config, root)
         if (config.actionGlassEnabled) {
-            val column = columnRef?.get()?.takeIf { it.isAttachedToWindow && it.isShown }
-            if (column is ViewGroup) bindColumn(column, config) else releaseColumn()
+            // The comment sheet hides the action column. Releasing the glass then put the
+            // original opaque icons back for the close animation and rebuilt every glyph
+            // afterwards, which read as the column changing opacity. A hidden column that is
+            // still attached keeps its glass untouched; only a detached one is released.
+            val column = columnRef?.get()
+            when {
+                column is ViewGroup && column.isAttachedToWindow && column.isShown -> bindColumn(column, config)
+                column != null && column.isAttachedToWindow -> Unit
+                else -> releaseColumn()
+            }
         } else {
             releaseColumn()
         }
@@ -256,7 +264,11 @@ internal object DouyinFeedGlass {
         }
         val sheet = nested?.let { panelOf(it, root) }
         if (column == null) column = columnFromMarkers(root)
-        columnRef = column?.let(::WeakReference)
+        // Under an open comment sheet the walk can miss the column; keep the one we have
+        // while it is still attached instead of dropping its glass.
+        if (column != null || columnRef?.get()?.isAttachedToWindow != true) {
+            columnRef = column?.let(::WeakReference)
+        }
         nestedRef = nested?.let(::WeakReference)
         // A full-screen nested layout with no panel child yet is not the surface to frost.
         // Keep the previous panel until this scan actually finds the next one, so a
@@ -1249,6 +1261,12 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
     private var live = false
     private var dirty = true
     private var refreshPosted = false
+    /** Frames left to chase a host that is still below the window, or whose record failed. */
+    private var chaseBudget = DouyinFeedGlassChaseFrames
+    /** First draw of this backdrop, for the one-line "scene ready" diagnostic. */
+    private var firstDrawAt = 0L
+    private var chasedFrames = 0
+    private var readyLogged = false
 
     fun hostView(): View? = host
 
@@ -1327,34 +1345,47 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
             if (!bounds.isEmpty) canvas.drawRect(bounds, fill)
             return
         }
-        // True while the host is still moving on screen. Douyin keeps the comment sheet
-        // attached after the first open and slides it back in on the RenderNode, which
-        // never calls draw(): the scene stayed the one recorded at the start position
-        // (below the screen, empty), so a reopened sheet showed bare tint until the 700ms
-        // refresh. Chasing one frame at a time until the position settles fixes that and
-        // costs nothing once the sheet is still.
+        // Douyin builds the comment sheet below the window and slides it in on the RenderNode,
+        // which never calls draw(). On a new video it can also hold the sheet there for a few
+        // frames before the slide starts. A scene recorded down there is empty, and the next
+        // re-record used to wait for the 700ms refresh, so the panel showed bare tint first.
+        // Chase frame by frame while the host moves, while it is still below the window, or
+        // while the record fails; once it is on screen and still, nothing extra runs.
         var chase = false
         runCatching {
             ensureEffect(width, height)
             val now = SystemClock.uptimeMillis()
+            if (firstDrawAt == 0L) firstDrawAt = now
             host.getLocationInWindow(hostAt)
             val moved = hostAt[0] != sceneX || hostAt[1] != sceneY
-            // A failed record leaves sceneX/Y behind; chasing it would never settle.
             val stale = !live && now - sceneAt >= DouyinFeedGlassRefresh
             // Live glass (the input capsule and its icon circles) re-records when the list
-            // scrolls or the view moves. It does not schedule the next frame itself.
-            // The sheet is not live: one delayed invalidate keeps the 700ms refresh without
-            // a 60fps loop while the panel sits still.
+            // scrolls or the view moves. The sheet is not live: once settled, one delayed
+            // invalidate keeps the 700ms refresh without a 60fps loop.
+            var recorded = true
             if (dirty || !sceneNode.hasDisplayList() || width != sceneW || height != sceneH || moved || stale) {
-                if (record(host, width, height)) {
+                recorded = record(host, width, height)
+                if (recorded) {
                     dirty = false
                     sceneAt = now
                     sceneW = width
                     sceneH = height
                     sceneX = hostAt[0]
                     sceneY = hostAt[1]
-                    chase = moved
                 }
+            }
+            val slop = 24f * host.resources.displayMetrics.density
+            val below = hostAt[1] + height > host.rootView.height + slop
+            if (moved && recorded) chaseBudget = DouyinFeedGlassChaseFrames
+            // A failed record leaves sceneX/Y behind, so `moved` alone would never settle.
+            chase = (moved && recorded) || ((below || !recorded) && chaseBudget-- > 0)
+            if (chase) chasedFrames++
+            if (!readyLogged && !live && recorded && !below) {
+                readyLogged = true
+                Xposed.log(
+                    "[OfflineGlass][CommentGlass] scene ready after ${now - firstDrawAt}ms " +
+                        "frames=$chasedFrames ${width}x$height",
+                )
             }
         }
         val save = canvas.save()
@@ -1449,6 +1480,9 @@ internal class SurfaceBackdrop(context: android.content.Context, private val cap
 
 /** Scene re-record interval, kept out of the drawable so the draw path stays allocation-free. */
 private const val DouyinFeedGlassRefresh = 700L
+
+/** Upper bound on chased frames while a sheet waits below the window (about 1.5 s). */
+private const val DouyinFeedGlassChaseFrames = 90
 
 /**
  * Replays whatever is already drawn behind [host] into [sceneNode], in host-local pixels.

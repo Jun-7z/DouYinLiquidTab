@@ -62,8 +62,13 @@ internal object DouyinMusicCover {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>) = size > CACHE_SIZE
     }
     private val loading = HashSet<String>()
+    /** Keys whose every URL failed, so the circle can stop waiting. Main thread only. */
+    private val failed = LinkedHashSet<String>()
     private var loggedLoad = false
     private var loggedFail = false
+    /** Bumped on every holder `bind`, so [prefetch] walks the holders only after a change. */
+    @Volatile private var bindSeq = 0
+    private var prefetchedSeq = -1
 
     fun install(classLoader: ClassLoader) {
         if (installed) return
@@ -83,11 +88,30 @@ internal object DouyinMusicCover {
     }
 
     private fun remember(holder: Any) {
+        // A recycled holder binds the next video into the same object, so count every bind.
+        bindSeq++
         synchronized(holders) {
             holders.removeAll { it.get() == null }
             if (holders.any { it.get() === holder }) return
             if (holders.size >= MAX_HOLDERS) holders.removeAt(0)
             holders.add(WeakReference(holder))
+        }
+    }
+
+    /**
+     * Starts fetching the cover of every bound video, not only the one on screen. The feed
+     * binds the next page before the swipe, so its cover is usually cached by the time it
+     * becomes current and the circle switches without waiting on the network.
+     */
+    fun prefetch(size: Int) {
+        val seq = bindSeq
+        if (seq == prefetchedSeq) return
+        prefetchedSeq = seq
+        val snapshot = synchronized(holders) { holders.mapNotNull { it.get() } }
+        for (holder in snapshot) {
+            val aweme = awemeOf(holder) ?: continue
+            val urls = runCatching { coverUrls(aweme) }.getOrNull() ?: continue
+            load(urls, size)
         }
     }
 
@@ -116,13 +140,18 @@ internal object DouyinMusicCover {
     /** Main thread. The cached cover for [key], if it has been fetched. */
     fun cached(key: String): Bitmap? = cache[key]?.takeIf { !it.isRecycled }
 
+    /** Main thread. True when every URL for [key] failed on the last attempt. */
+    fun hasFailed(key: String): Boolean = key in failed
+
     /**
      * Fetches the first of [urls] that decodes, scaled so its short side is about [size],
-     * and center-cropped square. [onLoaded] runs on the main thread with the cache key.
+     * and center-cropped square, into the cache under the first URL. Callers poll
+     * [cached] / [hasFailed]; a fetch already in flight for a prefetch is simply shared.
      */
-    fun load(urls: List<String>, size: Int, onLoaded: (String, Bitmap) -> Unit) {
+    fun load(urls: List<String>, size: Int) {
         val key = urls.firstOrNull() ?: return
         if (cache.containsKey(key) || !loading.add(key)) return
+        failed.remove(key)
         worker.execute {
             var bitmap: Bitmap? = null
             var failure: Throwable? = null
@@ -140,10 +169,13 @@ internal object DouyinMusicCover {
                         loggedLoad = true
                         Xposed.log("[OfflineGlass][MusicCover] cover loaded ${bitmap.width}x${bitmap.height}")
                     }
-                    onLoaded(key, bitmap)
-                } else if (!loggedFail) {
-                    loggedFail = true
-                    Xposed.log("[OfflineGlass][MusicCover] cover load failed: ${failure?.javaClass?.simpleName} ${failure?.message}")
+                } else {
+                    failed.add(key)
+                    if (failed.size > CACHE_SIZE) failed.remove(failed.first())
+                    if (!loggedFail) {
+                        loggedFail = true
+                        Xposed.log("[OfflineGlass][MusicCover] cover load failed: ${failure?.javaClass?.simpleName} ${failure?.message}")
+                    }
                 }
             }
         }
